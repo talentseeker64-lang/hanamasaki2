@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": ".open-next/worker.js",
+  "name": "hanamasaki2",
+  "compatibility_date": "2026-10-26",
+  "compatibility_flags": [
+    // Mengaktifkan API Node.js di runtime Workers.
+    "nodejs_compat",
+    // Mengizinkan aplikasi melakukan fetch ke URL publik.
+    "global_fetch_strictly_public"
+  ],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      // Wajib sama persis dengan nilai "name" di atas. Kalau berbeda,
+      // deploy gagal dengan error 10143 (service binding not found).
+      "service": "hanamasaki2"
+    }
+  ]
+}
