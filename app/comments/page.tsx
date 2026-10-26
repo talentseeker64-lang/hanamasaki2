@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import CopilotPanel from "@/components/CopilotPanel";
 import { BarList, StackedBar } from "@/components/charts";
 import {
@@ -6,6 +7,7 @@ import {
   DataNotice,
   KpiCard,
   PageHeader,
+  PageSkeleton,
   PlatformBadge,
 } from "@/components/ui";
 import { COPILOT_SUGGESTIONS, answerCopilot } from "@/lib/ai";
@@ -17,7 +19,15 @@ const SENTIMENT_COLOR = { positive: "#10b981", neutral: "#94a3b8", negative: "#f
 const SENTIMENT_LABEL = { positive: "Positif", neutral: "Netral", negative: "Negatif" };
 
 export default function CommentsPage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <CommentsContent />
+    </Suspense>
+  );
+}
+
+async function CommentsContent() {
+  const dataset = await getDataset();
   const analysis = commentAnalysis(dataset);
   const copilot = answerCopilot(COPILOT_SUGGESTIONS[1], dataset);
   const topIntent = [...analysis.intents].sort((a, b) => b.count - a.count)[0];

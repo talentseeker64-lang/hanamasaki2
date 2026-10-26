@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import CopilotPanel from "@/components/CopilotPanel";
 import { DualLineChart } from "@/components/charts";
 import {
@@ -5,6 +6,7 @@ import {
   CardHeader,
   DataNotice,
   PageHeader,
+  PageSkeleton,
   SeverityBadge,
 } from "@/components/ui";
 import {
@@ -24,7 +26,15 @@ import {
 import { RANGE_DAYS, WINDOW, bestLag, pctChange, trendPoints } from "@/lib/metrics";
 
 export default function InsightsPage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <InsightsContent />
+    </Suspense>
+  );
+}
+
+async function InsightsContent() {
+  const dataset = await getDataset();
   const insights = buildInsights(dataset);
   const anomalies = detectAnomalies(dataset);
   const copilot = answerCopilot(COPILOT_SUGGESTIONS[3], dataset);

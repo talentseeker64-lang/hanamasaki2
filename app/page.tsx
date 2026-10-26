@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import Link from "next/link";
 import CopilotPanel from "@/components/CopilotPanel";
 import { BarList, DualLineChart, FunnelBars, StackedBar } from "@/components/charts";
@@ -7,6 +8,7 @@ import {
   DataNotice,
   KpiCard,
   PageHeader,
+  PageSkeleton,
   PlatformBadge,
   SeverityBadge,
 } from "@/components/ui";
@@ -31,7 +33,15 @@ import {
 const SENTIMENT_COLOR = { positive: "#10b981", neutral: "#94a3b8", negative: "#f43f5e" };
 
 export default function OverviewPage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <OverviewContent />
+    </Suspense>
+  );
+}
+
+async function OverviewContent() {
+  const dataset = await getDataset();
   const kpi = kpiSummary(dataset);
   const channels = platformAggregates(dataset);
   const insights = buildInsights(dataset).slice(0, 3);

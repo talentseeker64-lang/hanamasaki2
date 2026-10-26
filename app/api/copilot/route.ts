@@ -19,5 +19,5 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Pertanyaan maksimal 300 karakter." }, { status: 400 });
   }
 
-  return NextResponse.json(answerCopilot(trimmed, getDataset()));
+  return NextResponse.json(answerCopilot(trimmed, await getDataset()));
 }

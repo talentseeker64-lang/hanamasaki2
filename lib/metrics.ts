@@ -1,4 +1,4 @@
-import { getDataset, RANGE_DAYS, RANGE_TOTAL, WINDOW } from "./data";
+import { RANGE_DAYS, RANGE_TOTAL, WINDOW } from "./data";
 import type {
   CommentIntent,
   CommentItem,
@@ -109,7 +109,7 @@ function aggregatePlatform(
 }
 
 export function platformAggregates(
-  dataset: Dataset = getDataset(),
+  dataset: Dataset,
   size = RANGE_DAYS,
 ): PlatformAggregate[] {
   return PLATFORMS.map((platform) => {
@@ -140,7 +140,7 @@ export function platformAggregates(
   }).sort((a, b) => b.views - a.views);
 }
 
-export function kpiSummary(dataset: Dataset = getDataset()): KpiSummary {
+export function kpiSummary(dataset: Dataset): KpiSummary {
   const platformTotals = platformAggregates(dataset);
   const totals = platformTotals.reduce(
     (acc, row) => ({
@@ -204,7 +204,7 @@ export function kpiSummary(dataset: Dataset = getDataset()): KpiSummary {
 /* Deret waktu                                                         */
 /* ------------------------------------------------------------------ */
 
-export function trendPoints(dataset: Dataset = getDataset(), size = RANGE_DAYS): TrendPoint[] {
+export function trendPoints(dataset: Dataset, size = RANGE_DAYS): TrendPoint[] {
   const dates = dataset.social
     .filter((row) => row.platform === "instagram")
     .map((row) => row.date)
@@ -265,13 +265,13 @@ export function bestLag(socialViews: number[], webSessions: number[]): { lag: nu
 /* Konten                                                              */
 /* ------------------------------------------------------------------ */
 
-export function windowContent(dataset: Dataset = getDataset()): ContentItem[] {
+export function windowContent(dataset: Dataset): ContentItem[] {
   const start = dataset.range.start;
   return dataset.content.filter((item) => item.publishedAt.slice(0, 10) >= start);
 }
 
 export function topContent(
-  dataset: Dataset = getDataset(),
+  dataset: Dataset,
   limit = 6,
 ): ContentItem[] {
   return [...windowContent(dataset)]
@@ -280,7 +280,7 @@ export function topContent(
 }
 
 export function topContentByEngagement(
-  dataset: Dataset = getDataset(),
+  dataset: Dataset,
   limit = 6,
 ): ContentItem[] {
   return [...windowContent(dataset)]
@@ -323,26 +323,26 @@ function weekdayOf(iso: string): number {
   return new Date(`${iso.slice(0, 10)}T00:00:00Z`).getUTCDay();
 }
 
-export function performanceByHour(dataset: Dataset = getDataset()): PerformanceBucket[] {
+export function performanceByHour(dataset: Dataset): PerformanceBucket[] {
   return bucketize(
     windowContent(dataset),
     (item) => `${String(hourOf(item.publishedAt)).padStart(2, "0")}:00`,
   ).sort((a, b) => b.avgEngagement - a.avgEngagement);
 }
 
-export function performanceByWeekday(dataset: Dataset = getDataset()): PerformanceBucket[] {
+export function performanceByWeekday(dataset: Dataset): PerformanceBucket[] {
   return bucketize(windowContent(dataset), (item) => WEEKDAY_LABEL[weekdayOf(item.publishedAt)]).sort(
     (a, b) => b.avgEngagement - a.avgEngagement,
   );
 }
 
-export function performanceByFormat(dataset: Dataset = getDataset()): PerformanceBucket[] {
+export function performanceByFormat(dataset: Dataset): PerformanceBucket[] {
   return bucketize(windowContent(dataset), (item) => item.format).sort(
     (a, b) => b.avgEngagement - a.avgEngagement,
   );
 }
 
-export function performanceByTopic(dataset: Dataset = getDataset()): PerformanceBucket[] {
+export function performanceByTopic(dataset: Dataset): PerformanceBucket[] {
   return bucketize(windowContent(dataset), (item) => item.topic).sort(
     (a, b) => b.avgEngagement - a.avgEngagement,
   );
@@ -395,7 +395,7 @@ function sentimentShares(items: CommentItem[]) {
   };
 }
 
-export function commentAnalysis(dataset: Dataset = getDataset()): CommentAnalysis {
+export function commentAnalysis(dataset: Dataset): CommentAnalysis {
   const items = dataset.comments.filter(
     (item) => item.createdAt.slice(0, 10) >= dataset.range.start,
   );
@@ -493,7 +493,7 @@ export interface WebTotals {
   conversionRatePrev: number;
 }
 
-export function webTotals(dataset: Dataset = getDataset()): WebTotals {
+export function webTotals(dataset: Dataset): WebTotals {
   const rows = dataset.web.slice(-RANGE_DAYS);
   const prevRows = dataset.web.slice(-RANGE_DAYS * 2, -RANGE_DAYS);
   const conversions = sum(rows.map((row) => row.conversions));
@@ -536,7 +536,7 @@ export interface FunnelStep {
  * Setiap langkah hanya masuk akal bila dibaca sebagai penyempitan, bukan
  * atribusi transaksi bisnis.
  */
-export function conversionFunnel(dataset: Dataset = getDataset()): FunnelStep[] {
+export function conversionFunnel(dataset: Dataset): FunnelStep[] {
   const platformTotals = platformAggregates(dataset);
   const views = sum(platformTotals.map((row) => row.views));
   const profileVisits = sum(platformTotals.map((row) => row.profileVisits));
@@ -565,7 +565,7 @@ export function conversionFunnel(dataset: Dataset = getDataset()): FunnelStep[] 
 /* Ekspor dataset lengkap untuk API                                    */
 /* ------------------------------------------------------------------ */
 
-export function periodLabel(dataset: Dataset = getDataset()): string {
+export function periodLabel(dataset: Dataset): string {
   return `${dataset.range.days} hari terakhir`;
 }
 

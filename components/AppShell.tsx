@@ -60,7 +60,7 @@ export default function AppShell({
   syncLabel,
 }: {
   children: React.ReactNode;
-  syncLabel: string;
+  syncLabel: React.ReactNode;
 }) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -175,7 +175,7 @@ function Brand() {
   );
 }
 
-function SidebarFooter({ syncLabel }: { syncLabel: string }) {
+function SidebarFooter({ syncLabel }: { syncLabel: React.ReactNode }) {
   return (
     <div className="border-t border-slate-100 px-5 py-4">
       <p className="text-[11px] leading-relaxed text-slate-400">

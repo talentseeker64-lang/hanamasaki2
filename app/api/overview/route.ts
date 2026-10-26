@@ -8,7 +8,7 @@ import { kpiSummary, trendPoints } from "@/lib/metrics";
  * pengujian; halaman dashboard membaca fungsi yang sama secara langsung.
  */
 export async function GET() {
-  const dataset = getDataset();
+  const dataset = await getDataset();
   return NextResponse.json({
     range: dataset.range,
     history: dataset.history,

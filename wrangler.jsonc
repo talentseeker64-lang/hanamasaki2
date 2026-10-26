@@ -13,6 +13,16 @@
     "directory": ".open-next/assets",
     "binding": "ASSETS"
   },
+  "d1_databases": [
+    {
+      // Nama binding yang dipakai aplikasi lewat getCloudflareContext().env.DB.
+      "binding": "DB",
+      // Nama database seperti yang terdaftar di dashboard Cloudflare.
+      // Nilai ini juga dipakai sebagai argumen perintah `wrangler d1`.
+      "database_name": "karambit",
+      "database_id": "865475e1-00a0-4abc-baef-6feaec3da107"
+    }
+  ],
   "services": [
     {
       "binding": "WORKER_SELF_REFERENCE",

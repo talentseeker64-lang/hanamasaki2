@@ -1,10 +1,19 @@
-import { Card, CardHeader, DataNotice, PageHeader } from "@/components/ui";
+import { Suspense } from "react";
+import { Card, CardHeader, DataNotice, PageHeader, PageSkeleton } from "@/components/ui";
 import { buildReport } from "@/lib/ai";
 import { getDataset } from "@/lib/data";
 import { formatDateLong, formatDelta, formatNumber } from "@/lib/format";
 
 export default function ReportsPage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <ReportsContent />
+    </Suspense>
+  );
+}
+
+async function ReportsContent() {
+  const dataset = await getDataset();
   const report = buildReport(dataset);
 
   return (

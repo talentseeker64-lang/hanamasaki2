@@ -1,4 +1,4 @@
-import { getDataset, RANGE_DAYS, WINDOW } from "./data";
+import { RANGE_DAYS, WINDOW } from "./data";
 import {
   formatCompact,
   formatDateShort,
@@ -89,7 +89,7 @@ export interface Anomaly {
 /* Deteksi anomali                                                     */
 /* ------------------------------------------------------------------ */
 
-export function detectAnomalies(dataset: Dataset = getDataset()): Anomaly[] {
+export function detectAnomalies(dataset: Dataset): Anomaly[] {
   const anomalies: Anomaly[] = [];
 
   const dailySocial = new Map<string, number>();
@@ -157,7 +157,7 @@ export interface TrafficDiagnosis {
   dataPoints: string[];
 }
 
-export function diagnoseTrafficGap(dataset: Dataset = getDataset()): TrafficDiagnosis {
+export function diagnoseTrafficGap(dataset: Dataset): TrafficDiagnosis {
   const recent = platformAggregates(dataset, WINDOW);
   const viewsNow = sum(recent.map((row) => row.views));
   const viewsPrev = sum(recent.map((row) => row.viewsPrev));
@@ -332,7 +332,7 @@ function severityFromChange(change: number, threshold = 12): Severity {
   return "info";
 }
 
-export function buildInsights(dataset: Dataset = getDataset()): Insight[] {
+export function buildInsights(dataset: Dataset): Insight[] {
   const insights: Insight[] = [];
   const kpi = kpiSummary(dataset);
   const diagnosis = diagnoseTrafficGap(dataset);
@@ -485,7 +485,7 @@ export interface ReportBlock {
   recommendations: string[];
 }
 
-export function buildReport(dataset: Dataset = getDataset()): ReportBlock {
+export function buildReport(dataset: Dataset): ReportBlock {
   const kpi = kpiSummary(dataset);
   const diagnosis = diagnoseTrafficGap(dataset);
   const comments = commentAnalysis(dataset);
@@ -682,7 +682,7 @@ function forecastAnswer(question: string, dataset: Dataset): CopilotAnswer {
   };
 }
 
-export function answerCopilot(question: string, dataset: Dataset = getDataset()): CopilotAnswer {
+export function answerCopilot(question: string, dataset: Dataset): CopilotAnswer {
   const normalized = question.toLowerCase();
   const rules: Array<{ keywords: string[]; handler: (q: string, d: Dataset) => CopilotAnswer }> = [
     {

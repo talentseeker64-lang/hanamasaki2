@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import type { Metadata } from "next";
 import AppShell from "@/components/AppShell";
 import { getDataset } from "@/lib/data";
@@ -10,12 +11,28 @@ export const metadata: Metadata = {
     "Dashboard analitik media sosial dan website dengan analisis konten, sentimen komentar, dan rekomendasi otomatis.",
 };
 
+/**
+ * Penanda dinamis: waktu sinkronisasi dibaca dari D1 pada saat request.
+ * Dipisah dari layout agar kerangka halaman tetap dapat diprerender statis.
+ */
+async function SyncLabel() {
+  const dataset = await getDataset();
+  return <>{formatDateTime(dataset.generatedAt)}</>;
+}
+
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  const dataset = getDataset();
   return (
     <html lang="id" style={{ colorScheme: "light" }}>
       <body className="min-h-screen">
-        <AppShell syncLabel={formatDateTime(dataset.generatedAt)}>{children}</AppShell>
+        <AppShell
+          syncLabel={
+            <Suspense fallback="…">
+              <SyncLabel />
+            </Suspense>
+          }
+        >
+          {children}
+        </AppShell>
       </body>
     </html>
   );

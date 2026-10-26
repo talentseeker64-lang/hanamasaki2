@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import CopilotPanel from "@/components/CopilotPanel";
 import { DualLineChart, FunnelBars } from "@/components/charts";
 import {
@@ -6,6 +7,7 @@ import {
   DataNotice,
   KpiCard,
   PageHeader,
+  PageSkeleton,
   PlatformBadge,
 } from "@/components/ui";
 import { COPILOT_SUGGESTIONS, answerCopilot } from "@/lib/ai";
@@ -29,7 +31,15 @@ const CHANNEL_LABEL: Record<TrafficChannel, string> = {
 };
 
 export default function WebsitePage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <WebsiteContent />
+    </Suspense>
+  );
+}
+
+async function WebsiteContent() {
+  const dataset = await getDataset();
   const totals = webTotals(dataset);
   const funnel = conversionFunnel(dataset);
   const copilot = answerCopilot(COPILOT_SUGGESTIONS[0], dataset);

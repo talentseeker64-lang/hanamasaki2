@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { BarList, DualLineChart } from "@/components/charts";
 import {
   Card,
@@ -5,6 +6,7 @@ import {
   DataNotice,
   KpiCard,
   PageHeader,
+  PageSkeleton,
   PlatformBadge,
 } from "@/components/ui";
 import { getDataset } from "@/lib/data";
@@ -39,7 +41,15 @@ const FORMAT_LABEL: Record<string, string> = {
 };
 
 export default function SocialPage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <SocialContent />
+    </Suspense>
+  );
+}
+
+async function SocialContent() {
+  const dataset = await getDataset();
   const kpi = kpiSummary(dataset);
   const channels = platformAggregates(dataset);
   const points = trendPoints(dataset);

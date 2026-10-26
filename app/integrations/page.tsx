@@ -1,4 +1,5 @@
-import { Card, CardHeader, DataNotice, PageHeader, PlatformBadge } from "@/components/ui";
+import { Suspense } from "react";
+import { Card, CardHeader, DataNotice, PageHeader, PageSkeleton, PlatformBadge } from "@/components/ui";
 import { getDataset } from "@/lib/data";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import type { ConnectionState } from "@/lib/types";
@@ -63,7 +64,15 @@ const DATA_SOURCE_NOTES: Array<{
 ];
 
 export default function IntegrationsPage() {
-  const dataset = getDataset();
+  return (
+    <Suspense fallback={<PageSkeleton />}>
+      <IntegrationsContent />
+    </Suspense>
+  );
+}
+
+async function IntegrationsContent() {
+  const dataset = await getDataset();
 
   return (
     <div className="flex flex-col gap-6">
