@@ -1,4 +1,4 @@
-import { io } from "next/cache";
+import { connection } from "next/server";
 import { getDb } from "./db";
 import type {
   ChannelAccount,
@@ -267,12 +267,14 @@ function toSearch(row: SearchRow): SearchMetric {
 /**
  * Membaca dataset dari D1 pada setiap request.
  *
- * `io()` menandai pembacaan ini sebagai operasi request-time, sehingga Next.js
- * tidak mencoba menjalankannya saat prerender — di tahap build binding D1 belum
- * menunjuk ke database yang sebenarnya.
+ * `connection()` menandai pembacaan ini sebagai operasi request-time, sehingga
+ * Next.js tidak mencoba menjalankannya saat prerender — di tahap build binding
+ * D1 belum menunjuk ke database yang sebenarnya. Ini juga yang membuat halaman
+ * dirender `ƒ Dynamic` (bukan PPR), karena Cache Components tidak kompatibel
+ * dengan runtime Cloudflare Workers.
  */
 export async function getDataset(): Promise<Dataset> {
-  await io();
+  await connection();
   const db = await getDb();
 
   const [metaResult, accountResult, socialResult, contentResult, commentResult, webResult, sourceResult, pageResult, searchResult] =

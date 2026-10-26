@@ -1,10 +1,12 @@
 import type { NextConfig } from "next";
 import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
 
+// Cache Components (dan Partial Prerendering) sengaja TIDAK diaktifkan.
+// Dokumentasi Next 16 menyatakan fitur ini "requires the Node.js runtime";
+// Cloudflare Workers (workerd) bukan Node.js, sehingga prerender PPR menggantung
+// dan runtime Workers membunuh request dengan error 1101. Sebagai gantinya,
+// halaman dirender dinamis penuh per request — lihat `connection()` di lib/data.ts.
 const nextConfig: NextConfig = {
-  /* config options here */
-  cacheComponents: true,
-  partialPrefetching: true,
   turbopack: {
     rules: {
       "*.css": {
