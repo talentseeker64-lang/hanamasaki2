@@ -141,6 +141,30 @@ export interface Evidence {
   change?: number;
 }
 
+export interface KpiSummary {
+  totalViews: number;
+  totalViewsPrev: number;
+  /** Rasio interaksi dalam persen. */
+  engagementRate: number;
+  engagementRatePrev: number;
+  followers: number;
+  followersPrev: number;
+  sessions: number;
+  sessionsPrev: number;
+  conversions: number;
+  conversionsPrev: number;
+  linkClicks: number;
+  linkClicksPrev: number;
+}
+
+export interface TrendPoint {
+  date: string;
+  label: string;
+  socialViews: number;
+  linkClicks: number;
+  webSessions: number;
+}
+
 export interface Insight {
   id: string;
   title: string;

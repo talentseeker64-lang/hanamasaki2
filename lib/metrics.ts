@@ -182,7 +182,6 @@ export function kpiSummary(dataset: Dataset = getDataset()): KpiSummary {
     RANGE_DAYS,
   );
 
-  const followersStart = sum(dataset.accounts.map((account) => account.followersStart));
   const followersNow = sum(dataset.accounts.map((account) => account.followers));
 
   return {
