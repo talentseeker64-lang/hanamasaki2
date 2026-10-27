@@ -1,10 +1,9 @@
 import { connection } from "next/server";
-import { getDb } from "./db";
+import { type AccountRow, toAccount } from "./accounts";
+import { getDb, rowsOf } from "./db";
 import type {
-  ChannelAccount,
   CommentIntent,
   CommentItem,
-  ConnectionState,
   ContentFormat,
   ContentItem,
   DailySocialMetric,
@@ -34,19 +33,6 @@ interface MetaRow {
   history_end: string;
   history_days: number;
   generated_at: string;
-}
-
-interface AccountRow {
-  id: string;
-  platform: string;
-  handle: string;
-  display_name: string;
-  followers: number;
-  followers_start: number;
-  connection: string;
-  scopes: string;
-  last_sync_at: string | null;
-  limitation: string;
 }
 
 interface SocialRow {
@@ -136,28 +122,9 @@ interface SearchRow {
   position_prev: number;
 }
 
-function rowsOf<T>(result: D1Result): T[] {
-  return (result.results ?? []) as T[];
-}
-
 /* ------------------------------------------------------------------ */
 /* Pemetaan baris -> kontrak Dataset                                   */
 /* ------------------------------------------------------------------ */
-
-function toAccount(row: AccountRow): ChannelAccount {
-  return {
-    id: row.id,
-    platform: row.platform as Platform,
-    handle: row.handle,
-    displayName: row.display_name,
-    followers: row.followers,
-    followersStart: row.followers_start,
-    connection: row.connection as ConnectionState,
-    scopes: JSON.parse(row.scopes) as string[],
-    lastSyncAt: row.last_sync_at,
-    limitation: row.limitation,
-  };
-}
 
 function toSocial(row: SocialRow): DailySocialMetric {
   return {

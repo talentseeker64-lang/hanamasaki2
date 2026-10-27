@@ -1,7 +1,8 @@
 import { Suspense } from "react";
-import { Card, CardHeader, DataNotice, PageHeader, PageSkeleton, PlatformBadge } from "@/components/ui";
+import { Card, CardHeader, DataNotice, PageHeader, PageSkeleton } from "@/components/ui";
+import { AccountsManager } from "@/components/AccountsManager";
+import { listCredentialSummaries } from "@/lib/credentials";
 import { getDataset } from "@/lib/data";
-import { formatDateTime, formatNumber } from "@/lib/format";
 import type { ConnectionState } from "@/lib/types";
 
 const CONNECTION_STYLE: Record<ConnectionState, { label: string; className: string }> = {
@@ -72,75 +73,17 @@ export default function IntegrationsPage() {
 }
 
 async function IntegrationsContent() {
-  const dataset = await getDataset();
+  const [dataset, credentials] = await Promise.all([getDataset(), listCredentialSummaries()]);
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         eyebrow="Integrations"
         title="Koneksi akun media sosial dan website"
-        description="Setiap platform memiliki aturan akses data yang berbeda. Beberapa metrik hanya tersedia untuk akun yang terhubung dan telah memberikan izin, dan beberapa endpoint memerlukan persetujuan aplikasi."
+        description="Tambah, ubah, dan hubungkan akun yang dipantau. Metrik pengikut dan tayangan tidak diisi manual — angka itu terisi saat sinkronisasi platform berjalan."
       />
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        {dataset.accounts.map((account) => {
-          const style = CONNECTION_STYLE[account.connection];
-          const gained = account.followers - account.followersStart;
-          return (
-            <Card key={account.id}>
-              <CardHeader
-                title={account.displayName}
-                description={account.handle}
-                action={
-                  <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${style.className}`}>
-                    {style.label}
-                  </span>
-                }
-              />
-              <div className="flex flex-col gap-4 px-5 py-5">
-                <div className="flex items-center gap-2">
-                  <PlatformBadge platform={account.platform} />
-                  <span className="text-xs text-slate-400">{account.id}</span>
-                </div>
-                <dl className="grid grid-cols-2 gap-x-6 gap-y-3">
-                  <div>
-                    <dt className="text-[11px] text-slate-400">Pengikut saat ini</dt>
-                    <dd className="text-sm font-semibold tabular-nums text-slate-800">
-                      {formatNumber(account.followers)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-[11px] text-slate-400">Bertambah di dataset</dt>
-                    <dd className="text-sm font-semibold tabular-nums text-emerald-600">
-                      +{formatNumber(gained)}
-                    </dd>
-                  </div>
-                  <div className="col-span-2">
-                    <dt className="text-[11px] text-slate-400">Sinkronisasi terakhir</dt>
-                    <dd className="text-sm text-slate-700">
-                      {account.lastSyncAt ? formatDateTime(account.lastSyncAt) : "Belum tersinkron"}
-                    </dd>
-                  </div>
-                </dl>
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-slate-400">Izin (scopes)</p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {account.scopes.map((scope) => (
-                      <span
-                        key={scope}
-                        className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] text-slate-600"
-                      >
-                        {scope}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-                <DataNotice>{account.limitation}</DataNotice>
-              </div>
-            </Card>
-          );
-        })}
-      </div>
+      <AccountsManager accounts={dataset.accounts} credentials={credentials} />
 
       <Card>
         <CardHeader

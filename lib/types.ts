@@ -207,3 +207,60 @@ export interface Dataset {
   pages: LandingPage[];
   search: SearchMetric[];
 }
+
+/* ------------------------------------------------------------------ */
+/* Pengaturan organisasi — tabel D1 tersendiri, bukan bagian analitik  */
+/* ------------------------------------------------------------------ */
+
+/** Peran anggota tim. Disimpan sebagai kunci stabil; labelnya diatur di UI. */
+export type TeamRole = "owner" | "admin" | "analyst" | "content_manager" | "agency";
+
+export interface Organization {
+  id: string;
+  name: string;
+  plan: string;
+  timezone: string;
+  defaultPeriod: string;
+}
+
+export interface TeamMember {
+  email: string;
+  name: string;
+  role: TeamRole;
+  scope: string;
+}
+
+export interface NotificationPreference {
+  id: string;
+  label: string;
+  detail: string;
+  enabled: boolean;
+}
+
+export interface Settings {
+  organization: Organization;
+  team: TeamMember[];
+  notifications: NotificationPreference[];
+}
+
+/**
+ * Masukan pembuatan dan pembaruan akun.
+ *
+ * Metrik (pengikut, tayangan, konversi) sengaja tidak ada di sini: angka itu
+ * harus berasal dari API platform, bukan diketik manual.
+ */
+export interface AccountInput {
+  platform: Platform;
+  handle: string;
+  displayName: string;
+  connection: ConnectionState;
+  scopes: string[];
+  limitation: string;
+}
+
+/** Ringkasan kredensial yang aman dikirim ke klien — tanpa rahasia apa pun. */
+export interface CredentialSummary {
+  accountId: string;
+  clientId: string;
+  updatedAt: string;
+}

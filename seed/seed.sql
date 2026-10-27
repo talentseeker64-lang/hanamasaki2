@@ -690,3 +690,23 @@ INSERT INTO search (query, impressions, clicks, clicks_prev, ctr, position, posi
   ('hanamasak murah', 4900, 181, 219, 3.7, 8.1, 7.4, 8),
   ('kirim ke seluruh indonesia', 2400, 63, 57, 2.6, 9.4, 9.8, 9);
 
+DELETE FROM organization;
+INSERT INTO organization (id, name, plan, timezone, default_period) VALUES
+  ('current', 'Hanamasak Studio', 'Tim (5 kursi)', 'Asia/Jakarta (WIB)', '30 hari terakhir');
+
+DELETE FROM team_members;
+INSERT INTO team_members (email, name, role, scope, sort_order) VALUES
+  ('andi@hanamasak.example', 'Andi Pratama', 'owner', 'Semua kanal dan pengaturan', 0),
+  ('rani@hanamasak.example', 'Rani Kusuma', 'admin', 'Semua kanal, tanpa tagihan', 1),
+  ('dwi@hanamasak.example', 'Dwi Santoso', 'analyst', 'Semua kanal, hanya baca', 2),
+  ('bela@hanamasak.example', 'Bela Anggraini', 'content_manager', 'Instagram, TikTok', 3),
+  ('yusuf@hanamasak.example', 'Yusuf Ramadhan', 'agency', 'Instagram, TikTok, laporan', 4);
+
+DELETE FROM notifications;
+INSERT INTO notifications (id, label, detail, enabled, sort_order) VALUES
+  ('daily-summary', 'Ringkasan harian', 'Rekap performa 24 jam terakhir setiap pukul 08.00 WIB.', 1, 0),
+  ('traffic-drop', 'Peringatan penurunan trafik', 'Dikirim bila sesi website turun lebih dari 15% dibanding 7 hari sebelumnya.', 1, 1),
+  ('performance-spike', 'Peringatan lonjakan performa', 'Dikirim bila tayangan sosial naik lebih dari 25% dalam sehari.', 0, 2),
+  ('unanswered-complaints', 'Keluhan belum tertangani', 'Dikirim bila ada keluhan dengan jumlah suka tinggi tanpa balasan lebih dari 24 jam.', 1, 3),
+  ('weekly-client-report', 'Laporan mingguan ke klien', 'Laporan otomatis setiap Senin pagi untuk klien agensi.', 0, 4);
+

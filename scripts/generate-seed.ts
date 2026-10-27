@@ -11,6 +11,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { buildDemoDataset } from "../lib/demo-dataset.ts";
+import { NOTIFICATIONS, ORGANIZATION, TEAM_MEMBERS } from "../lib/default-settings.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, "..");
@@ -288,6 +289,55 @@ chunks.push(
   ),
 );
 
+// Pengaturan ruang kerja. Tabelnya dibuat oleh migrasi 0002, terpisah dari
+// dataset analitik di atas agar reset dataset tidak menghapus pengaturan.
+// Tabel `account_credentials` sengaja tidak diisi: rahasianya hanya masuk lewat
+// endpoint tulis yang terenkripsi.
+
+chunks.push(
+  insert(
+    "organization",
+    ["id", "name", "plan", "timezone", "default_period"],
+    [
+      [
+        ORGANIZATION.id,
+        ORGANIZATION.name,
+        ORGANIZATION.plan,
+        ORGANIZATION.timezone,
+        ORGANIZATION.defaultPeriod,
+      ],
+    ],
+  ),
+);
+
+chunks.push(
+  insert(
+    "team_members",
+    ["email", "name", "role", "scope", "sort_order"],
+    TEAM_MEMBERS.map((member, index) => [
+      member.email,
+      member.name,
+      member.role,
+      member.scope,
+      index,
+    ]),
+  ),
+);
+
+chunks.push(
+  insert(
+    "notifications",
+    ["id", "label", "detail", "enabled", "sort_order"],
+    NOTIFICATIONS.map((preference, index) => [
+      preference.id,
+      preference.label,
+      preference.detail,
+      preference.enabled ? 1 : 0,
+      index,
+    ]),
+  ),
+);
+
 const sql = `${chunks.filter(Boolean).join("\n")}\n`;
 const seedPath = resolve(root, "seed", "seed.sql");
 mkdirSync(dirname(seedPath), { recursive: true });
@@ -300,6 +350,7 @@ console.log(`seed.sql ditulis: ${seedPath} (${(sql.length / 1024).toFixed(1)} KB
 
 const db = new DatabaseSync(":memory:");
 db.exec(readFileSync(resolve(root, "migrations", "0001_init.sql"), "utf8"));
+db.exec(readFileSync(resolve(root, "migrations", "0002_settings_and_credentials.sql"), "utf8"));
 db.exec(sql);
 
 const expected: Array<[string, number]> = [
@@ -312,6 +363,10 @@ const expected: Array<[string, number]> = [
   ["sources", dataset.sources.length],
   ["pages", dataset.pages.length],
   ["search", dataset.search.length],
+  ["organization", 1],
+  ["team_members", TEAM_MEMBERS.length],
+  ["notifications", NOTIFICATIONS.length],
+  ["account_credentials", 0],
 ];
 
 let failed = false;
