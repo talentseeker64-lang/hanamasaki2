@@ -227,6 +227,25 @@ export function trendPoints(dataset: Dataset, size = RANGE_DAYS): TrendPoint[] {
   });
 }
 
+/** Deret waktu satu kanal saja, agar tren per platform tidak tercampur kanal lain. */
+export function platformTrendPoints(
+  dataset: Dataset,
+  platform: Platform,
+  size = RANGE_DAYS,
+): TrendPoint[] {
+  const rows = dataset.social.filter((row) => row.platform === platform).slice(-size);
+  return rows.map((row) => {
+    const webRow = dataset.web.find((item) => item.date === row.date);
+    return {
+      date: row.date,
+      label: row.date.slice(5),
+      socialViews: row.views,
+      linkClicks: row.linkClicks,
+      webSessions: webRow?.sessions ?? 0,
+    };
+  });
+}
+
 /** Korelasi Pearson, mengembalikan nilai -1..1. */
 export function correlate(a: number[], b: number[]): number {
   const length = Math.min(a.length, b.length);
@@ -265,16 +284,20 @@ export function bestLag(socialViews: number[], webSessions: number[]): { lag: nu
 /* Konten                                                              */
 /* ------------------------------------------------------------------ */
 
-export function windowContent(dataset: Dataset): ContentItem[] {
+export function windowContent(dataset: Dataset, platform?: Platform): ContentItem[] {
   const start = dataset.range.start;
-  return dataset.content.filter((item) => item.publishedAt.slice(0, 10) >= start);
+  return dataset.content.filter(
+    (item) =>
+      item.publishedAt.slice(0, 10) >= start && (!platform || item.platform === platform),
+  );
 }
 
 export function topContent(
   dataset: Dataset,
   limit = 6,
+  platform?: Platform,
 ): ContentItem[] {
-  return [...windowContent(dataset)]
+  return [...windowContent(dataset, platform)]
     .sort((a, b) => b.views - a.views)
     .slice(0, limit);
 }
@@ -282,8 +305,9 @@ export function topContent(
 export function topContentByEngagement(
   dataset: Dataset,
   limit = 6,
+  platform?: Platform,
 ): ContentItem[] {
-  return [...windowContent(dataset)]
+  return [...windowContent(dataset, platform)]
     .sort((a, b) => engagementRateOf(b) - engagementRateOf(a))
     .slice(0, limit);
 }
@@ -323,27 +347,28 @@ function weekdayOf(iso: string): number {
   return new Date(`${iso.slice(0, 10)}T00:00:00Z`).getUTCDay();
 }
 
-export function performanceByHour(dataset: Dataset): PerformanceBucket[] {
+export function performanceByHour(dataset: Dataset, platform?: Platform): PerformanceBucket[] {
   return bucketize(
-    windowContent(dataset),
+    windowContent(dataset, platform),
     (item) => `${String(hourOf(item.publishedAt)).padStart(2, "0")}:00`,
   ).sort((a, b) => b.avgEngagement - a.avgEngagement);
 }
 
-export function performanceByWeekday(dataset: Dataset): PerformanceBucket[] {
-  return bucketize(windowContent(dataset), (item) => WEEKDAY_LABEL[weekdayOf(item.publishedAt)]).sort(
+export function performanceByWeekday(dataset: Dataset, platform?: Platform): PerformanceBucket[] {
+  return bucketize(
+    windowContent(dataset, platform),
+    (item) => WEEKDAY_LABEL[weekdayOf(item.publishedAt)],
+  ).sort((a, b) => b.avgEngagement - a.avgEngagement);
+}
+
+export function performanceByFormat(dataset: Dataset, platform?: Platform): PerformanceBucket[] {
+  return bucketize(windowContent(dataset, platform), (item) => item.format).sort(
     (a, b) => b.avgEngagement - a.avgEngagement,
   );
 }
 
-export function performanceByFormat(dataset: Dataset): PerformanceBucket[] {
-  return bucketize(windowContent(dataset), (item) => item.format).sort(
-    (a, b) => b.avgEngagement - a.avgEngagement,
-  );
-}
-
-export function performanceByTopic(dataset: Dataset): PerformanceBucket[] {
-  return bucketize(windowContent(dataset), (item) => item.topic).sort(
+export function performanceByTopic(dataset: Dataset, platform?: Platform): PerformanceBucket[] {
+  return bucketize(windowContent(dataset, platform), (item) => item.topic).sort(
     (a, b) => b.avgEngagement - a.avgEngagement,
   );
 }

@@ -3,8 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
+import { PLATFORM_BRAND, PLATFORM_ORDER, PlatformIcon } from "@/components/ui";
+import type { Platform } from "@/lib/types";
 
-const NAV: Array<{ href: string; label: string; hint: string; icon: string }> = [
+interface NavChild {
+  href: string;
+  label: string;
+  platform: Platform;
+}
+
+interface NavItem {
+  href: string;
+  label: string;
+  hint: string;
+  icon: string;
+  /** Submenu opsional; dipakai untuk memecah data per kanal sosial. */
+  children?: NavChild[];
+}
+
+const NAV: NavItem[] = [
   {
     href: "/",
     label: "Overview",
@@ -16,6 +33,11 @@ const NAV: Array<{ href: string; label: string; hint: string; icon: string }> = 
     label: "Social Media",
     hint: "Statistik per platform",
     icon: "M4 19V5m0 14h16M8 15v-4m4 4V7m4 8v-6",
+    children: PLATFORM_ORDER.map((platform) => ({
+      href: `/social/${platform}`,
+      label: PLATFORM_BRAND[platform].label,
+      platform,
+    })),
   },
   {
     href: "/comments",
@@ -55,6 +77,17 @@ const NAV: Array<{ href: string; label: string; hint: string; icon: string }> = 
   },
 ];
 
+/** Cocokkan pathname ke menu induk, anak menu, atau judul bawaan aplikasi. */
+function titleForPath(pathname: string): string {
+  for (const item of NAV) {
+    if (pathname === item.href) return item.label;
+    const child = item.children?.find((entry) => entry.href === pathname);
+    if (child) return `${item.label} · ${child.label}`;
+    if (item.href !== "/" && pathname.startsWith(`${item.href}/`)) return item.label;
+  }
+  return "PeakAlpha";
+}
+
 export default function AppShell({
   children,
   syncLabel,
@@ -68,37 +101,66 @@ export default function AppShell({
   const nav = (
     <nav className="flex flex-1 flex-col gap-0.5 px-2">
       {NAV.map((item) => {
-        const active = pathname === item.href;
+        const active =
+          pathname === item.href || (item.href !== "/" && pathname.startsWith(`${item.href}/`));
         return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setOpen(false)}
-            className={`group flex items-start gap-3 rounded-lg px-3 py-2 text-sm transition ${
-              active
-                ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100"
-                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            }`}
-          >
-            <svg
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`mt-0.5 size-4 shrink-0 ${active ? "text-indigo-600" : "text-slate-400"}`}
-              aria-hidden
+          <div key={item.href}>
+            <Link
+              href={item.href}
+              onClick={() => setOpen(false)}
+              className={`group flex items-start gap-3 rounded-lg px-3 py-2 text-sm transition ${
+                active
+                  ? "bg-indigo-50 text-indigo-700 ring-1 ring-indigo-100"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              }`}
             >
-              <path d={item.icon} />
-            </svg>
-            <span className="min-w-0">
-              <span className={`block font-medium ${active ? "text-indigo-700" : ""}`}>
-                {item.label}
+              <svg
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className={`mt-0.5 size-4 shrink-0 ${active ? "text-indigo-600" : "text-slate-400"}`}
+                aria-hidden
+              >
+                <path d={item.icon} />
+              </svg>
+              <span className="min-w-0">
+                <span className={`block font-medium ${active ? "text-indigo-700" : ""}`}>
+                  {item.label}
+                </span>
+                <span className="block truncate text-[11px] text-slate-400">{item.hint}</span>
               </span>
-              <span className="block truncate text-[11px] text-slate-400">{item.hint}</span>
-            </span>
-          </Link>
+            </Link>
+
+            {item.children ? (
+              <ul className="mb-1 mt-0.5 flex flex-col gap-0.5 pl-6">
+                {item.children.map((child) => {
+                  const childActive = pathname === child.href;
+                  return (
+                    <li key={child.href}>
+                      <Link
+                        href={child.href}
+                        onClick={() => setOpen(false)}
+                        className={`flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] transition ${
+                          childActive
+                            ? "bg-slate-100 font-medium text-slate-900"
+                            : "text-slate-500 hover:bg-slate-50 hover:text-slate-800"
+                        }`}
+                      >
+                        <PlatformIcon
+                          platform={child.platform}
+                          className={`size-3.5 shrink-0 ${childActive ? "" : "opacity-80"}`}
+                        />
+                        {child.label}
+                      </Link>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+          </div>
         );
       })}
     </nav>
@@ -141,7 +203,7 @@ export default function AppShell({
           </button>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-medium text-slate-900">
-              {NAV.find((item) => item.href === pathname)?.label ?? "PeakAlpha"}
+              {titleForPath(pathname)}
             </p>
             <p className="text-xs text-slate-500">Periode aktif: 30 hari terakhir</p>
           </div>
