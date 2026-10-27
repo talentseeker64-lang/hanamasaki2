@@ -25,17 +25,49 @@ const PLATFORM_LABEL: Record<Platform, string> = {
   facebook: "Facebook",
 };
 
+// Status koneksi diisi manual dan belum diverifikasi lewat panggilan API
+// platform. Labelnya dibuat eksplisit agar tidak terkesan sudah terbukti hidup.
 const CONNECTION_LABEL: Record<ConnectionState, string> = {
-  connected: "Terhubung",
+  connected: "Terhubung (belum diverifikasi)",
   needs_review: "Perlu ditinjau",
   not_connected: "Belum terhubung",
 };
 
 const CONNECTION_STYLE: Record<ConnectionState, string> = {
-  connected: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+  connected: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
   needs_review: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
   not_connected: "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
 };
+
+/**
+ * Platform yang alur izinnya sudah dapat dijalankan dari halaman ini,
+ * beserta endpoint mulai OAuth milik penyedianya.
+ */
+const OAUTH_PROVIDER: Partial<Record<Platform, { path: string; label: string }>> = {
+  instagram: { path: "/api/oauth/meta/start", label: "Hubungkan via Meta" },
+  facebook: { path: "/api/oauth/meta/start", label: "Hubungkan via Meta" },
+  youtube: { path: "/api/oauth/google/start", label: "Hubungkan via Google" },
+};
+
+/**
+ * Label status koneksi yang jujur.
+ *
+ * `connection` adalah pilihan manual, jadi ia tidak boleh tampil sebagai bukti
+ * koneksi hidup. Bukti itu baru ada setelah sinkronisasi berhasil memanggil API
+ * platform — dan hanya saat itulah `lastSyncAt` terisi.
+ */
+function connectionBadge(account: ChannelAccount): { label: string; className: string } {
+  if (account.lastSyncAt) {
+    return {
+      label: "Terhubung (terverifikasi)",
+      className: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+    };
+  }
+  return {
+    label: CONNECTION_LABEL[account.connection],
+    className: CONNECTION_STYLE[account.connection],
+  };
+}
 
 interface AccountDraft {
   platform: Platform;
@@ -114,9 +146,12 @@ function toCredentialPayload(draft: CredentialDraft) {
 export function AccountsManager({
   accounts,
   credentials,
+  notice = null,
 }: {
   accounts: ChannelAccount[];
   credentials: CredentialSummary[];
+  /** Hasil alur OAuth yang diteruskan server dari parameter URL. */
+  notice?: { tone: "ok" | "error"; text: string } | null;
 }) {
   const router = useRouter();
   const [token, setToken] = useAdminToken();
@@ -206,9 +241,61 @@ export function AccountsManager({
     );
   }
 
+  /**
+   * Memulai otorisasi platform.
+   *
+   * URL otorisasi diminta lewat POST ber-token agar token admin tidak pernah
+   * masuk ke URL; setelah itu peramban diarahkan ke dialog penyedia OAuth.
+   */
+  async function handleConnect(account: ChannelAccount, path: string) {
+    setBusy(true);
+    setFeedback(null);
+    const outcome = await sendWrite<{ authorizeUrl: string }>(token, path, "POST", {
+      accountId: account.id,
+    });
+    setBusy(false);
+
+    if (!outcome.ok) {
+      setFeedback({ tone: "error", text: outcome.error });
+      return;
+    }
+    window.location.assign(outcome.data.authorizeUrl);
+  }
+
+  async function handleSync() {
+    setBusy(true);
+    setFeedback(null);
+    const outcome = await sendWrite<{
+      summary: { total: number; ok: number; failed: number; skipped: number };
+      results: Array<{ accountId: string; status: string; message: string }>;
+    }>(token, "/api/sync/run", "POST");
+    setBusy(false);
+
+    if (!outcome.ok) {
+      setFeedback({ tone: "error", text: outcome.error });
+      return;
+    }
+
+    const { ok, failed, skipped } = outcome.data.summary;
+    const details = outcome.data.results
+      .filter((item) => item.status !== "ok")
+      .map((item) => `${item.accountId}: ${item.message}`)
+      .join(" ");
+
+    setFeedback({
+      tone: failed > 0 ? "error" : "ok",
+      text: `Sinkronisasi selesai — ${ok} berhasil, ${failed} gagal, ${skipped} dilewati.${
+        details === "" ? "" : ` ${details}`
+      }`,
+    });
+    router.refresh();
+  }
+
   return (
     <div className="flex flex-col gap-6">
       <AdminTokenCard token={token} onChange={setToken} />
+
+      {notice ? <FeedbackBanner feedback={notice} /> : null}
 
       <FeedbackBanner feedback={feedback} />
 
@@ -216,16 +303,21 @@ export function AccountsManager({
         <h2 className="text-sm font-semibold text-slate-900">
           Akun yang dipantau ({accounts.length})
         </h2>
-        <button
-          type="button"
-          onClick={() => {
-            setCreating((value) => !value);
-            setCreateDraft(EMPTY_ACCOUNT);
-          }}
-          className={creating ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-        >
-          {creating ? "Batal" : "Tambah akun"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={handleSync} disabled={busy} className={SECONDARY_BUTTON}>
+            {busy ? "Bekerja…" : "Sinkronkan sekarang"}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setCreating((value) => !value);
+              setCreateDraft(EMPTY_ACCOUNT);
+            }}
+            className={creating ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+          >
+            {creating ? "Batal" : "Tambah akun"}
+          </button>
+        </div>
       </div>
 
       {creating ? (
@@ -255,6 +347,8 @@ export function AccountsManager({
           const credential = credentialOf(account.id);
           const isEditing = editingId === account.id;
           const isEditingCredential = credentialId === account.id;
+          const badge = connectionBadge(account);
+          const provider = OAUTH_PROVIDER[account.platform];
 
           return (
             <Card key={account.id}>
@@ -262,10 +356,8 @@ export function AccountsManager({
                 title={account.displayName}
                 description={account.handle}
                 action={
-                  <span
-                    className={`rounded px-2 py-0.5 text-[10px] font-semibold ${CONNECTION_STYLE[account.connection]}`}
-                  >
-                    {CONNECTION_LABEL[account.connection]}
+                  <span className={`rounded px-2 py-0.5 text-[10px] font-semibold ${badge.className}`}>
+                    {badge.label}
                   </span>
                 }
               />
@@ -322,6 +414,16 @@ export function AccountsManager({
                 <DataNotice>{account.limitation || "Tidak ada catatan keterbatasan data."}</DataNotice>
 
                 <div className="flex flex-wrap gap-2">
+                  {provider ? (
+                    <button
+                      type="button"
+                      onClick={() => handleConnect(account, provider.path)}
+                      disabled={busy}
+                      className={PRIMARY_BUTTON}
+                    >
+                      {provider.label}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     onClick={() => {
