@@ -680,7 +680,7 @@ function buildComments(dates: string[]): CommentItem[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Akun terhubung                                                      */
+/* Profil akun contoh                                                  */
 /* ------------------------------------------------------------------ */
 
 const ACCOUNT_PROFILES: Array<
@@ -692,7 +692,7 @@ const ACCOUNT_PROFILES: Array<
     handle: "@hanamasak.studio",
     displayName: "Hanamasak Studio",
     followersStart: 45_110,
-    connection: "connected",
+    connection: "not_connected",
     scopes: ["instagram_basic", "instagram_manage_insights", "pages_read_engagement"],
     limitation:
       "Metrik viewer unik (reach) hanya tersedia untuk akun Business/Creator yang terhubung. Likes disembunyikan pada sebagian unggahan.",
@@ -703,7 +703,7 @@ const ACCOUNT_PROFILES: Array<
     handle: "@hanamasak",
     displayName: "Hanamasak",
     followersStart: 58_900,
-    connection: "connected",
+    connection: "not_connected",
     scopes: ["user.info.basic", "user.info.stats", "video.list"],
     limitation:
       "Video views tidak dapat dibandingkan langsung dengan platform lain karena definisi penghitungan yang berbeda, dan data demografi audiens terbatas.",
@@ -714,7 +714,7 @@ const ACCOUNT_PROFILES: Array<
     handle: "@HanamasakStudio",
     displayName: "Hanamasak Studio",
     followersStart: 20_750,
-    connection: "connected",
+    connection: "not_connected",
     scopes: ["youtube.readonly", "yt-analytics.readonly"],
     limitation:
       "Analytics YouTube tertunda hingga 48 jam, sehingga angka 24 jam terakhir bersifat sementara.",
@@ -740,10 +740,10 @@ function buildAccounts(social: DailySocialMetric[]): ChannelAccount[] {
     return {
       ...profile,
       followers: profile.followersStart + gained,
-      lastSyncAt:
-        profile.connection === "connected"
-          ? `${RANGE_END}T06:${profile.platform === "youtube" ? "05" : "12"}:00+07:00`
-          : null,
+      // Seeding tidak pernah melewati OAuth, jadi tidak boleh mengaku pernah
+      // tersinkron. `lastSyncAt` hanya diisi oleh lib/sync.ts setelah panggilan
+      // API platform benar-benar berhasil; itulah satu-satunya bukti koneksi.
+      lastSyncAt: null,
     };
   });
 }

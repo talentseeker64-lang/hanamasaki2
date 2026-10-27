@@ -8,9 +8,9 @@ INSERT INTO dataset_meta (id, range_start, range_end, range_days, history_start,
 
 DELETE FROM accounts;
 INSERT INTO accounts (id, platform, handle, display_name, followers, followers_start, connection, scopes, last_sync_at, limitation, sort_order) VALUES
-  ('acc-ig', 'instagram', '@hanamasak.studio', 'Hanamasak Studio', 45592, 45110, 'connected', '["instagram_basic","instagram_manage_insights","pages_read_engagement"]', '2026-10-26T06:12:00+07:00', 'Metrik viewer unik (reach) hanya tersedia untuk akun Business/Creator yang terhubung. Likes disembunyikan pada sebagian unggahan.', 0),
-  ('acc-tt', 'tiktok', '@hanamasak', 'Hanamasak', 59758, 58900, 'connected', '["user.info.basic","user.info.stats","video.list"]', '2026-10-26T06:12:00+07:00', 'Video views tidak dapat dibandingkan langsung dengan platform lain karena definisi penghitungan yang berbeda, dan data demografi audiens terbatas.', 1),
-  ('acc-yt', 'youtube', '@HanamasakStudio', 'Hanamasak Studio', 21108, 20750, 'connected', '["youtube.readonly","yt-analytics.readonly"]', '2026-10-26T06:05:00+07:00', 'Analytics YouTube tertunda hingga 48 jam, sehingga angka 24 jam terakhir bersifat sementara.', 2),
+  ('acc-ig', 'instagram', '@hanamasak.studio', 'Hanamasak Studio', 45592, 45110, 'not_connected', '["instagram_basic","instagram_manage_insights","pages_read_engagement"]', NULL, 'Metrik viewer unik (reach) hanya tersedia untuk akun Business/Creator yang terhubung. Likes disembunyikan pada sebagian unggahan.', 0),
+  ('acc-tt', 'tiktok', '@hanamasak', 'Hanamasak', 59758, 58900, 'not_connected', '["user.info.basic","user.info.stats","video.list"]', NULL, 'Video views tidak dapat dibandingkan langsung dengan platform lain karena definisi penghitungan yang berbeda, dan data demografi audiens terbatas.', 1),
+  ('acc-yt', 'youtube', '@HanamasakStudio', 'Hanamasak Studio', 21108, 20750, 'not_connected', '["youtube.readonly","yt-analytics.readonly"]', NULL, 'Analytics YouTube tertunda hingga 48 jam, sehingga angka 24 jam terakhir bersifat sementara.', 2),
   ('acc-fb', 'facebook', 'Hanamasak', 'Hanamasak Page', 15040, 14980, 'needs_review', '["pages_read_engagement","read_insights"]', NULL, 'Izin insights belum diperbarui setelah review aplikasi; sebagian metrik Page masih belum tersinkron.', 3);
 
 DELETE FROM social_daily;
