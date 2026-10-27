@@ -271,3 +271,144 @@ function toCount(value: unknown): number {
   }
   return 0;
 }
+
+/* ------------------------------------------------------------------ */
+/* Daftar video channel                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Batas durasi Shorts menurut definisi YouTube (sejak Oktober 2024).
+ *
+ * Data API tidak mengirim penanda "ini Shorts", jadi penilaian di sini hanya
+ * memakai durasi — bukan rasio aspek. Video ≤ 3 menit disebut sebagai
+ * *indikasi* Shorts, bukan kepastian.
+ */
+export const SHORTS_MAX_SECONDS = 180;
+
+export interface YouTubeVideo {
+  id: string;
+  title: string;
+  publishedAt: string;
+  thumbnailUrl: string;
+  durationSeconds: number;
+  /** Indikasi Shorts berdasarkan durasi; lihat `SHORTS_MAX_SECONDS`. */
+  isShort: boolean;
+  views: number;
+  likes: number;
+  comments: number;
+}
+
+/** Durasi ISO 8601 dari YouTube, mis. `PT1H2M3S` atau `PT45S`. */
+const ISO_DURATION = /^P(?:(\d+)W)?(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?)?$/;
+
+function parseDurationSeconds(value: unknown): number {
+  if (typeof value !== "string") return 0;
+  const match = ISO_DURATION.exec(value);
+  if (!match) return 0;
+  const [, weeks, days, hours, minutes, seconds] = match;
+  return (
+    toCount(weeks) * 604800 +
+    toCount(days) * 86400 +
+    toCount(hours) * 3600 +
+    toCount(minutes) * 60 +
+    toCount(seconds)
+  );
+}
+
+function pickThumbnail(snippet: Record<string, unknown>): string {
+  const thumbnails = (snippet.thumbnails ?? {}) as Record<string, unknown>;
+  for (const key of ["medium", "high", "default"]) {
+    const candidate = thumbnails[key];
+    if (typeof candidate === "object" && candidate !== null) {
+      const url = (candidate as Record<string, unknown>).url;
+      if (typeof url === "string" && url !== "") return url;
+    }
+  }
+  return "";
+}
+
+/**
+ * Daftar video terbaru channel milik akun yang diotorisasi.
+ *
+ * Tiga panggilan Data API dipakai berurutan: membaca playlist unggahan,
+ * mengambil ID video terbaru, lalu mengambil detail durasi dan statistiknya.
+ * Urutan hasil mengikuti urutan unggahan terbaru, bukan urutan balikan API.
+ */
+export async function fetchYouTubeVideos(
+  accessToken: string,
+  limit = 50,
+): Promise<YouTubeVideo[]> {
+  const headers = { authorization: `Bearer ${accessToken}` };
+
+  const channelUrl = new URL(`${DATA_ENDPOINT}/channels`);
+  channelUrl.searchParams.set("part", "contentDetails");
+  channelUrl.searchParams.set("mine", "true");
+  const channelPayload = await readGoogle(await fetch(channelUrl, { headers }));
+
+  const channelItems = Array.isArray(channelPayload.items) ? channelPayload.items : [];
+  const firstChannel = channelItems[0];
+  if (typeof firstChannel !== "object" || firstChannel === null) {
+    throw new GoogleApiError(
+      "Akun Google ini tidak memiliki channel YouTube. Buat channel lebih dulu, lalu hubungkan ulang.",
+    );
+  }
+
+  const contentDetails = ((firstChannel as Record<string, unknown>).contentDetails ?? {}) as Record<
+    string,
+    unknown
+  >;
+  const relatedPlaylists = (contentDetails.relatedPlaylists ?? {}) as Record<string, unknown>;
+  const uploads = typeof relatedPlaylists.uploads === "string" ? relatedPlaylists.uploads : "";
+  if (uploads === "") {
+    throw new GoogleApiError("Daftar unggahan channel ini tidak tersedia untuk token tersebut.");
+  }
+
+  const playlistUrl = new URL(`${DATA_ENDPOINT}/playlistItems`);
+  playlistUrl.searchParams.set("part", "contentDetails");
+  playlistUrl.searchParams.set("playlistId", uploads);
+  playlistUrl.searchParams.set("maxResults", String(Math.min(Math.max(limit, 1), 50)));
+  const playlistPayload = await readGoogle(await fetch(playlistUrl, { headers }));
+
+  const playlistItems = Array.isArray(playlistPayload.items) ? playlistPayload.items : [];
+  const ids: string[] = [];
+  for (const item of playlistItems) {
+    if (typeof item !== "object" || item === null) continue;
+    const details = ((item as Record<string, unknown>).contentDetails ?? {}) as Record<string, unknown>;
+    const videoId = details.videoId;
+    if (typeof videoId === "string" && videoId !== "") ids.push(videoId);
+  }
+  if (ids.length === 0) return [];
+
+  const videosUrl = new URL(`${DATA_ENDPOINT}/videos`);
+  videosUrl.searchParams.set("part", "snippet,contentDetails,statistics");
+  videosUrl.searchParams.set("id", ids.join(","));
+  const videosPayload = await readGoogle(await fetch(videosUrl, { headers }));
+
+  const videoItems = Array.isArray(videosPayload.items) ? videosPayload.items : [];
+  const byId = new Map<string, YouTubeVideo>();
+  for (const item of videoItems) {
+    if (typeof item !== "object" || item === null) continue;
+    const video = item as Record<string, unknown>;
+    const id = typeof video.id === "string" ? video.id : "";
+    if (id === "") continue;
+
+    const snippet = (video.snippet ?? {}) as Record<string, unknown>;
+    const statistics = (video.statistics ?? {}) as Record<string, unknown>;
+    const details = (video.contentDetails ?? {}) as Record<string, unknown>;
+    const durationSeconds = parseDurationSeconds(details.duration);
+
+    byId.set(id, {
+      id,
+      title: typeof snippet.title === "string" ? snippet.title : "(judul tidak tersedia)",
+      publishedAt: typeof snippet.publishedAt === "string" ? snippet.publishedAt : "",
+      thumbnailUrl: pickThumbnail(snippet),
+      durationSeconds,
+      isShort: durationSeconds > 0 && durationSeconds <= SHORTS_MAX_SECONDS,
+      views: toCount(statistics.viewCount),
+      likes: toCount(statistics.likeCount),
+      comments: toCount(statistics.commentCount),
+    });
+  }
+
+  return ids.map((id) => byId.get(id)).filter((video): video is YouTubeVideo => video !== undefined);
+}

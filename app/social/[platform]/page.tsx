@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { BarList, DualLineChart } from "@/components/charts";
+import YouTubeVideoList from "@/components/YouTubeVideoList";
 import {
   Card,
   CardHeader,
@@ -246,6 +247,8 @@ async function PlatformContent({ platform }: { platform: Platform }) {
           />
         </div>
       </Card>
+
+      {platform === "youtube" ? <YouTubeVideoList /> : null}
 
       <Card>
         <CardHeader

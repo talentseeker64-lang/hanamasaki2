@@ -11,6 +11,7 @@ import {
 } from "./meta";
 import type { Platform } from "./types";
 import {
+  GoogleApiError,
   fetchYouTubeChannel,
   fetchYouTubeDailyViews,
   getGoogleAppConfig,
@@ -104,6 +105,46 @@ function needsRefresh(expiresAt: string | null): boolean {
   return Number.isFinite(remaining) && remaining < REFRESH_THRESHOLD_MS;
 }
 
+/**
+ * Access token Google yang masih berlaku untuk satu akun, diperbarui bila perlu.
+ *
+ * Dipakai bersama oleh tugas sinkronisasi dan endpoint baca daftar video, supaya
+ * aturan perpanjangan token hanya ada di satu tempat.
+ */
+async function googleAccessToken(
+  accountId: string,
+  credentials: CredentialInput,
+): Promise<string> {
+  if (!needsRefresh(credentials.expiresAt)) return credentials.accessToken;
+
+  const refreshToken = credentials.refreshToken;
+  if (!refreshToken) {
+    throw new GoogleApiError(
+      "Token Google sudah kedaluwarsa dan refresh token tidak tersimpan. Hubungkan ulang akun YouTube.",
+    );
+  }
+
+  const config = await getGoogleAppConfig();
+  const refreshed = await refreshGoogleToken(config, refreshToken);
+  await saveCredentials(accountId, {
+    ...credentials,
+    accessToken: refreshed.accessToken,
+    expiresAt: refreshed.expiresAt,
+  });
+  return refreshed.accessToken;
+}
+
+/** Versi publik `googleAccessToken` yang membaca sendiri kredensial akun. */
+export async function resolveGoogleAccessToken(accountId: string): Promise<string> {
+  const credentials = await readCredentials(accountId);
+  if (!credentials) {
+    throw new GoogleApiError(
+      "Belum ada kredensial OAuth tersimpan untuk akun ini. Hubungkan akun lewat menu Integrations.",
+    );
+  }
+  return googleAccessToken(accountId, credentials);
+}
+
 /** Instagram dan Facebook: token panjang Meta diperpanjang dengan fb_exchange_token. */
 async function syncMetaAccount(
   row: SyncAccountRow,
@@ -132,28 +173,7 @@ async function syncGoogleAccount(
   row: SyncAccountRow,
   credentials: CredentialInput,
 ): Promise<AccountSyncResult> {
-  const config = await getGoogleAppConfig();
-  let accessToken = credentials.accessToken;
-
-  if (needsRefresh(credentials.expiresAt)) {
-    const refreshToken = credentials.refreshToken;
-    if (!refreshToken) {
-      return {
-        accountId: row.id,
-        platform: "youtube",
-        status: "error",
-        message:
-          "Token Google sudah kedaluwarsa dan refresh token tidak tersimpan. Hubungkan ulang akun YouTube.",
-      };
-    }
-    const refreshed = await refreshGoogleToken(config, refreshToken);
-    accessToken = refreshed.accessToken;
-    await saveCredentials(row.id, {
-      ...credentials,
-      accessToken: refreshed.accessToken,
-      expiresAt: refreshed.expiresAt,
-    });
-  }
+  const accessToken = await googleAccessToken(row.id, credentials);
 
   const channel = await fetchYouTubeChannel(accessToken);
   await recordFollowers(row, channel.subscribers);
