@@ -79,7 +79,7 @@ tabel yang sudah ada.
 | `integrations` | — | **Baru** (migrasi 0004) |
 | `sync_jobs` | — | **Baru** (migrasi 0004) |
 | `audience_insights` | — | **Baru** (migrasi 0005) |
-| `tracking_links` | — | **Baru** (migrasi 0006) |
+| `tracking_links`, `tracking_events` | `site_events` | **Baru** (migrasi 0006); kedua konsep disatukan |
 | `leads`, `orders`, `order_items`, `revenue_events`, `conversion_touchpoints` | — | **Baru** (migrasi 0007) |
 | `ai_recommendations`, `recommendation_evidence` | — | **Baru** (migrasi 0008) |
 | `experiments`, `experiment_results` | — | **Baru** (migrasi 0009) |
@@ -223,35 +223,46 @@ Null berarti durasi tidak diketahui — bukan nol.
 
 Prasyarat Phase 4, dikerjakan lebih dulu karena tidak bergantung pihak ketiga.
 
-### 7.1 `tracking_links`
+**Berkas aktual:** `migrations/0006_site_events.sql`. Rancangan awal di bagian ini
+menyebut dua tabel (`tracking_links` + `tracking_events`); implementasi
+menyatukannya menjadi satu tabel `site_events` karena pemisahan itu tidak
+menambah apa pun pada tahap ini — tautan pendek belum dipakai, dan
+`utm_content` sudah cukup untuk mengaitkan kunjungan dengan konten. Pencatatan
+tautan sebagai entitas tersendiri ditunda sampai benar-benar dibutuhkan.
 
-| Kolom | Tipe | Keterangan |
-| --- | --- | --- |
-| `id` | TEXT PRIMARY KEY | Token pendek yang dipakai di bio/deskripsi |
-| `tenant_id` | TEXT | |
-| `destination_url` | TEXT | |
-| `utm_source` | TEXT | |
-| `utm_medium` | TEXT | |
-| `utm_campaign` | TEXT | |
-| `utm_content` | TEXT | Pemisah antar konten |
-| `content_id` | TEXT | Nullable; kaitan ke `content` |
-| `created_at` | TEXT | |
-
-### 7.2 `tracking_events`
+### 7.1 `site_events`
 
 | Kolom | Tipe | Keterangan |
 | --- | --- | --- |
 | `id` | TEXT PRIMARY KEY | |
-| `tenant_id` | TEXT | |
-| `link_id` | TEXT | Nullable |
-| `event_type` | TEXT | `click` / `page_view` / `product_view` |
-| `occurred_at` | TEXT | |
-| `session_ref` | TEXT | Anonim; untuk deduplikasi |
-| `source_kind` | TEXT | `website-tracker` |
-| `source_ref` | TEXT | Untuk deduplication saat pengiriman ulang |
+| `tenant_id` | TEXT | Isolasi multi-tenancy; wajib diisi saat menulis |
+| `occurred_at` | TEXT | Jam browser, disimpan apa adanya |
+| `received_at` | TEXT | Jam server penerima |
+| `event_type` | TEXT | `pageview` / `product_view` / `lead` / `order` |
+| `path` | TEXT | |
+| `referrer` | TEXT | Nullable |
+| `session_id` | TEXT | Anonim (dari sessionStorage, tanpa cookie) |
+| `utm_source` … `utm_term` | TEXT | Masing-masing nullable |
+| `value` | REAL | Hanya untuk peristiwa `order`; NULL berarti tidak dikirim |
+| `currency` | TEXT | Wajib menyertai `value`; kode 3 huruf |
+| `source_kind` | TEXT | `first-party` |
+| `source_ref` | TEXT NOT NULL | Kunci idempotensi; unik |
 
-Aturan: `tracking_events` menerima peristiwa berulang (at-least-once) dan
-mendeduplikasi lewat `source_ref`. Pengiriman ulang tidak boleh menambah angka.
+Aturan: `site_events` menerima peristiwa berulang (at-least-once) dan
+mendeduplikasi lewat `source_ref` (indeks unik `idx_site_events_source_ref`).
+Pengiriman ulang tidak boleh menambah angka. Indeks tambahan pada `occurred_at`
+dan `utm_campaign` mempercepat pemfilteran rentang dan pengelompokan kampanye.
+
+**Provenance:** peristiwa ini diberi label `first-party`, bukan `platform-api`.
+Pelacak mengukur sistem kita sendiri, bukan menarik data dari API platform;
+menyamakannya dengan `platform-api` akan membuat status koneksi kanal sosial
+tampak terbukti oleh data yang bukan berasal dari platform.
+
+**Batas yang disengaja:** peristiwa `lead` dan `order` dari browser **disimpan
+sebagai bukti**, tetapi **tidak** diangkat menjadi prospek atau penjualan. Tahap
+`leads`, `orders`, dan `revenue` pada corong tetap `not_connected` sampai sistem
+sumber sebenarnya (WhatsApp/CRM, marketplace, sistem transaksi) terhubung pada
+migrasi 0007. Tidak ada backfill: tabel ini kosong setelah migrasi.
 
 ---
 
@@ -355,7 +366,7 @@ Dedup memakai (`competitor_id`, `external_id`).
 | `0003` | Provenance, tenant, rentang | 1.1 | — |
 | `0004` | Integrasi + riwayat sinkronisasi | 2 | 0003 |
 | `0005` | Insight audiens + durasi konten | 1.2 / 2 | 0003 |
-| `0006` | Pelacakan website dan UTM | 4 | 0003, 0004 |
+| `0006` (`0006_site_events.sql`) | Pelacakan website dan UTM | 4 | 0003, 0004 |
 | `0007` | Leads, order, revenue, atribusi | 4 | 0006 |
 | `0008` | Rekomendasi AI + bukti | 5 | 0003 |
 | `0009` | Eksperimen | 6 | 0008 |

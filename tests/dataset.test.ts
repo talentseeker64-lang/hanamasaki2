@@ -40,6 +40,7 @@ function rows(overrides: Partial<DatasetRows> = {}): DatasetRows {
     pages: [],
     search: [],
     audience: [],
+    events: [],
     ...overrides,
   };
 }

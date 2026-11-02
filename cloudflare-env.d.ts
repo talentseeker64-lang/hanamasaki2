@@ -17,6 +17,14 @@ interface CloudflareEnv {
    */
   ADMIN_TOKEN?: string;
   /**
+   * Kunci bersama untuk menerima peristiwa pelacak website lewat `POST /api/track`.
+   * Ikut tertanam di skrip pelacak pada situs pemasang, sehingga hanya berfungsi
+   * sebagai penghalang pengiriman liar — bukan autentikasi. Selama belum diatur,
+   * endpoint pelacak menolak permintaan (HTTP 503).
+   * Atur dengan `npx wrangler secret put TRACK_KEY`.
+   */
+  TRACK_KEY?: string;
+  /**
    * Binding service ke Worker ini sendiri. Dipakai handler `scheduled`
    * (Cron Trigger) untuk memanggil endpoint sinkronisasi internal.
    */

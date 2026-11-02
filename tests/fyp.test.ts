@@ -74,6 +74,7 @@ function datasetWith(content: ContentItem[], platform: Platform = "instagram"): 
     pages: [],
     search: [],
     audience: [],
+    events: [],
   };
 }
 

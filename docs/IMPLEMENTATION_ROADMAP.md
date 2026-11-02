@@ -24,8 +24,8 @@ Aturan yang berlaku di seluruh fase:
 | 0 | Existing System Audit | **Selesai** | — |
 | 1 | Perbaikan Fondasi & Analytics | **Selesai** | Fase 0 |
 | 2 | Unified Marketing Data Layer | **Selesai** | Fase 1 |
-| 3 | FYP & Content Intelligence | Belum mulai | Fase 2 |
-| 4 | Sales & Conversion Intelligence | Belum mulai | Fase 2 |
+| 3 | FYP & Content Intelligence | **Selesai** | Fase 2 |
+| 4 | Sales & Conversion Intelligence | **Sebagian** (item 1, 2, 6) | Fase 2 |
 | 5 | Hybrid AI Intelligence | Belum mulai | Fase 3, 4 |
 | 6 | Competitor & Experiment | Belum mulai | Fase 5 |
 | 7 | Business Performance | Belum mulai | Fase 4, 6 |
@@ -195,7 +195,7 @@ masuk FYP. Skor harus disajikan sebagai perbandingan terhadap konten sendiri.
 
 ---
 
-## Phase 4 — Sales & Conversion Intelligence
+## Phase 4 — Sales & Conversion Intelligence · SEBAGIAN (item 1, 2, 6)
 
 **Tujuan:** menghubungkan aktivitas konten dengan hasil penjualan. Ini fase dengan
 nilai bisnis terbesar dan juga ketergantungan eksternal paling besar.
@@ -221,6 +221,50 @@ pengganti, karena itu angka ilustratif.
 
 **Deliverable:** dashboard yang menunjukkan hubungan konten → leads → transaksi →
 pendapatan, dengan setiap tahap yang belum terhubung ditandai jujur.
+
+### Yang sudah dikerjakan
+
+- **Item 1 — pelacakan website.** Skrip first-party [`public/track.js`](../public/track.js)
+  dan endpoint penerima [`app/api/track/route.ts`](../app/api/track/route.ts).
+  Peristiwa disimpan di tabel `site_events` (migrasi `0006_site_events.sql`)
+  dengan kunci idempotensi `source_ref`.
+- **Item 2 — atribusi UTM.** Parameter kampanye dinormalkan di
+  [`lib/tracking.ts`](../lib/tracking.ts) dan dikelompokkan per kampanye + konten
+  oleh `campaignAttribution` di [`lib/sales.ts`](../lib/sales.ts).
+- **Item 6 — corong konversi.** `salesFunnel` di [`lib/sales.ts`](../lib/sales.ts)
+  dan halaman [`app/sales/page.tsx`](../app/sales/page.tsx).
+
+### Cara angka corong dinyatakan jujur
+
+- Setiap tahap membawa `provenance`. Tahap yang belum punya sumber data
+  berstatus `not_connected` dengan `value: null` — **bukan `0`**, karena nol akan
+  terbaca “kosong” padahal artinya “tidak diketahui”.
+- Peristiwa `lead` dan `order` dari pelacak browser **disimpan sebagai bukti**,
+  tetapi **tidak** diangkat menjadi prospek, pesanan, atau pendapatan. Tahapnya
+  tetap `not_connected`; jumlah sinyal dilaporkan terpisah sebagai sinyal.
+- Rasio antar tahap (`stepRate`, `totalRate`) hanya dihitung bila kedua tahap
+  benar-benar terukur; jika tidak, rasionya `null` — bukan `0`.
+- `mixesProvenance` menandai corong yang mencampur data ilustratif dan data
+  terukur, agar pembacanya tidak menyamakan keduanya.
+- Kunjungan tanpa UTM membentuk kelompok `campaign: null` tersendiri dan tidak
+  dibuang, sehingga atribusi tidak tampak lebih lengkap daripada kenyataannya.
+
+### Bukti verifikasi (dari disk, bukan laporan)
+
+- `npx tsc --noEmit` — bersih.
+- `npm test` — 123 lulus, 0 gagal (21 baru untuk `tracking` dan `sales`).
+- `npm run lint` — bersih.
+- `npm run build` — sukses; rute `/sales` dan `/api/track` terdaftar.
+
+### Batas yang belum tertutup
+
+- **Item 3, 4, 5, dan 7** menunggu integrasi eksternal (WhatsApp/CRM, marketplace,
+  sistem transaksi). Selama itu, tahap `leads`, `orders`, dan `revenue` tetap
+  `not_connected`.
+- Migrasi `0006_site_events.sql` **belum diterapkan** ke D1 remote. Kode
+  penerimanya sudah siap, tetapi tabelnya belum ada di remote.
+- `public/track.js` dimuat dari proxy situs pemasang; belum ada pemasangan nyata
+  yang menghasilkan peristiwa pertama.
 
 ---
 

@@ -52,6 +52,12 @@ const NAV: NavItem[] = [
     icon: "M3 17l6-6 4 4 8-9M14 6h7v7",
   },
   {
+    href: "/sales",
+    label: "Sales & Conversion",
+    hint: "Corong konten ke pesanan",
+    icon: "M3 4h2l2.4 11.2a2 2 0 0 0 2 1.6h7.6a2 2 0 0 0 2-1.6L21 8H6M10 20a1 1 0 1 0 0-2 1 1 0 0 0 0 2Zm8 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2Z",
+  },
+  {
     href: "/website",
     label: "Website Analytics",
     hint: "Trafik dan konversi",
@@ -245,8 +251,9 @@ function SidebarFooter({ syncLabel }: { syncLabel: React.ReactNode }) {
     <div className="border-t border-slate-100 px-5 py-4">
       <p className="text-[11px] leading-relaxed text-slate-400">
         Asal setiap angka ditandai sendiri di kartu dan barisnya — “Sinkron API” berarti data
-        platform nyata, “Ilustratif” berarti data contoh, dan “Asal tak diketahui” berarti asalnya
-        tidak dapat dibuktikan. Terakhir disinkronkan {syncLabel}.
+        platform nyata, “Pelacak sendiri” berarti diukur langsung oleh sistem ini, “Ilustratif”
+        berarti data contoh, dan “Asal tak diketahui” berarti asalnya tidak dapat dibuktikan.
+        Terakhir disinkronkan {syncLabel}.
       </p>
     </div>
   );

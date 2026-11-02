@@ -18,12 +18,23 @@ export type Severity = "critical" | "high" | "medium" | "low" | "info";
  * Asal sebuah baris data.
  *
  * Menentukan apakah angkanya boleh diperlakukan sebagai data bisnis:
- * `platform-api` berasal dari panggilan API yang berhasil; `import` berasal dari
- * berkas yang dimasukkan pengguna; `seed` dibangkitkan generator ilustratif;
- * `legacy-unknown` berarti asalnya tidak dapat dibuktikan sehingga angkanya tidak
- * boleh dipakai sebagai dasar keputusan.
+ * `platform-api` berasal dari panggilan API yang berhasil; `first-party` diukur
+ * langsung oleh sistem kita sendiri (mis. peristiwa dari pelacak website);
+ * `import` berasal dari berkas yang dimasukkan pengguna; `seed` dibangkitkan
+ * generator ilustratif; `legacy-unknown` berarti asalnya tidak dapat dibuktikan
+ * sehingga angkanya tidak boleh dipakai sebagai dasar keputusan.
+ *
+ * `first-party` sengaja dipisahkan dari `platform-api`: keduanya sama-sama
+ * terukur, tetapi hanya `platform-api` yang boleh dipakai sebagai bukti bahwa
+ * kanal sosial benar-benar tersambung. Mencampur keduanya akan membuat status
+ * koneksi kanal tampak terverifikasi oleh data yang bukan berasal dari platform.
  */
-export type DataSourceKind = "platform-api" | "import" | "seed" | "legacy-unknown";
+export type DataSourceKind =
+  | "platform-api"
+  | "first-party"
+  | "import"
+  | "seed"
+  | "legacy-unknown";
 
 /**
  * Ringkasan asal data untuk sekumpulan baris.
@@ -194,6 +205,57 @@ export interface SearchMetric {
   sourceKind: DataSourceKind;
 }
 
+/* ------------------------------------------------------------------ */
+/* Peristiwa website — pelacakan first-party                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Jenis peristiwa yang diterima pelacak website.
+ *
+ * Daftarnya sengaja pendek dan masing-masing punya arti tunggal. Peristiwa yang
+ * tidak dapat diukur langsung (mis. "minat") tidak disediakan: menyediakannya
+ * hanya akan mendorong pengisian dengan tebakan.
+ */
+export type TrackingEventType = "pageview" | "product_view" | "lead" | "order";
+
+/**
+ * Parameter kampanye yang menempel pada sebuah kunjungan.
+ *
+ * Seluruh nilainya opsional: kunjungan tanpa UTM tetap dicatat apa adanya,
+ * bukan dipaksa masuk ke kampanye tertentu. `null` berarti parameternya memang
+ * tidak ada, berbeda dari string kosong.
+ */
+export interface UtmParams {
+  source: string | null;
+  medium: string | null;
+  campaign: string | null;
+  content: string | null;
+  term: string | null;
+}
+
+/**
+ * Satu peristiwa website yang benar-benar diterima sistem.
+ *
+ * `occurredAt` berasal dari jam browser dan `receivedAt` dari jam server. Ketika
+ * keduanya berbeda jauh, yang dipakai untuk analitik adalah `occurredAt` —
+ * tetapi `receivedAt` tetap disimpan supaya selisihnya dapat diperiksa, bukan
+ * disembunyikan.
+ */
+export interface SiteEvent {
+  id: string;
+  occurredAt: string;
+  receivedAt: string;
+  eventType: TrackingEventType;
+  path: string;
+  referrer: string | null;
+  sessionId: string | null;
+  utm: UtmParams;
+  /** Nilai transaksi; `null` bila peristiwanya bukan pesanan atau nilainya tidak dikirim. */
+  value: number | null;
+  currency: string | null;
+  sourceKind: DataSourceKind;
+}
+
 export type ConnectionState = "connected" | "needs_review" | "not_connected";
 
 export interface ChannelAccount {
@@ -286,6 +348,11 @@ export interface Dataset {
    * menampilkan "belum tersedia" alih-alih mengisi angka apa pun.
    */
   audience: AudienceInsight[];
+  /**
+   * Peristiwa website dari pelacak first-party. Kosong berarti belum ada
+   * peristiwa yang diterima — bukan berarti tidak ada kunjungan.
+   */
+  events: SiteEvent[];
 }
 
 /* ------------------------------------------------------------------ */

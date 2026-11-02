@@ -226,6 +226,10 @@ const PROVENANCE_STYLE: Record<DataProvenance, { label: string; className: strin
     label: "Sinkron API",
     className: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
   },
+  "first-party": {
+    label: "Pelacak sendiri",
+    className: "bg-teal-50 text-teal-700 ring-1 ring-teal-200",
+  },
   import: { label: "Impor", className: "bg-sky-50 text-sky-700 ring-1 ring-sky-200" },
   seed: { label: "Ilustratif", className: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
   "legacy-unknown": {

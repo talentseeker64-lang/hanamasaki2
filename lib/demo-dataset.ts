@@ -941,6 +941,11 @@ export function buildDemoDataset(): Dataset {
     pages: buildPages(web),
     search: buildSearch(),
     audience: buildAudience(dates[dates.length - RANGE_DAYS]),
+    // Peristiwa pelacak website tidak pernah dibangkitkan: peristiwa itu hanya
+    // boleh berasal dari permintaan yang benar-benar diterima `POST /api/track`.
+    // Mengisinya di sini akan membuat corong penjualan tampak terisi padahal
+    // belum ada satu pun peristiwa nyata.
+    events: [],
   };
   return cached;
 }

@@ -16,6 +16,8 @@ import type {
   Platform,
   SearchMetric,
   Sentiment,
+  SiteEvent,
+  TrackingEventType,
   TrafficChannel,
   TrafficSource,
 } from "./types";
@@ -144,6 +146,24 @@ export interface SearchRow {
   source_kind: string | null;
 }
 
+export interface SiteEventRow {
+  id: string;
+  occurred_at: string;
+  received_at: string;
+  event_type: string;
+  path: string;
+  referrer: string | null;
+  session_id: string | null;
+  utm_source: string | null;
+  utm_medium: string | null;
+  utm_campaign: string | null;
+  utm_content: string | null;
+  utm_term: string | null;
+  value: number | null;
+  currency: string | null;
+  source_kind: string | null;
+}
+
 /* ------------------------------------------------------------------ */
 /* Kolom yang dibaca, ditulis eksplisit                                */
 /* ------------------------------------------------------------------ */
@@ -186,6 +206,10 @@ const PAGE_COLUMNS =
 const SEARCH_COLUMNS =
   "query, impressions, clicks, clicks_prev, ctr, position, position_prev, source_kind";
 
+const SITE_EVENT_COLUMNS =
+  "id, occurred_at, received_at, event_type, path, referrer, session_id, utm_source, " +
+  "utm_medium, utm_campaign, utm_content, utm_term, value, currency, source_kind";
+
 /* ------------------------------------------------------------------ */
 /* Pemetaan baris -> kontrak Dataset                                   */
 /* ------------------------------------------------------------------ */
@@ -201,6 +225,7 @@ const SEARCH_COLUMNS =
 export function toSourceKind(value: string | null): DataSourceKind {
   if (
     value === "platform-api" ||
+    value === "first-party" ||
     value === "import" ||
     value === "seed" ||
     value === "legacy-unknown"
@@ -349,6 +374,45 @@ function toSearch(row: SearchRow): SearchMetric {
   };
 }
 
+/**
+ * Membaca jenis peristiwa pelacak dari basis data.
+ *
+ * Nilai di luar kosakata dibuang oleh pemanggil, bukan ditebak menjadi jenis
+ * lain. Menebaknya akan mengubah arti sebuah peristiwa — mis. peristiwa tak
+ * dikenal yang dianggap `pageview` akan menambah angka kunjungan yang tidak
+ * pernah terjadi.
+ */
+function toTrackingEventType(value: string): TrackingEventType | null {
+  if (value === "pageview" || value === "product_view" || value === "lead" || value === "order") {
+    return value;
+  }
+  return null;
+}
+
+function toSiteEvent(row: SiteEventRow): SiteEvent | null {
+  const eventType = toTrackingEventType(row.event_type);
+  if (eventType === null) return null;
+  return {
+    id: row.id,
+    occurredAt: row.occurred_at,
+    receivedAt: row.received_at,
+    eventType,
+    path: row.path,
+    referrer: row.referrer,
+    sessionId: row.session_id,
+    utm: {
+      source: row.utm_source,
+      medium: row.utm_medium,
+      campaign: row.utm_campaign,
+      content: row.utm_content,
+      term: row.utm_term,
+    },
+    value: row.value,
+    currency: row.currency,
+    sourceKind: toSourceKind(row.source_kind),
+  };
+}
+
 /* ------------------------------------------------------------------ */
 /* Penyaring kueri                                                     */
 /* ------------------------------------------------------------------ */
@@ -393,6 +457,7 @@ export interface DatasetRows {
   pages: PageRow[];
   search: SearchRow[];
   audience: AudienceRow[];
+  events: SiteEventRow[];
 }
 
 /**
@@ -424,6 +489,10 @@ export function assembleDataset(meta: MetaRow, rows: DatasetRows): Dataset {
     audience: rows.audience
       .map(toAudience)
       .filter((row): row is AudienceInsight => row !== null),
+    // Peristiwa dengan jenis tak dikenal juga dibuang, bukan dianggap kunjungan.
+    events: rows.events
+      .map(toSiteEvent)
+      .filter((row): row is SiteEvent => row !== null),
   };
 }
 
@@ -477,6 +546,7 @@ export async function getDataset(): Promise<Dataset> {
   const pages = whereClause(tenantId);
   const search = whereClause(tenantId);
   const audience = whereClause(tenantId);
+  const events = whereClause(tenantId);
 
   const [
     accountResult,
@@ -488,6 +558,7 @@ export async function getDataset(): Promise<Dataset> {
     pageResult,
     searchResult,
     audienceResult,
+    eventResult,
   ] = await db.batch([
     db
       .prepare(`SELECT ${ACCOUNT_COLUMNS} FROM accounts${accounts.where} ORDER BY sort_order`)
@@ -518,6 +589,11 @@ export async function getDataset(): Promise<Dataset> {
         `SELECT ${AUDIENCE_COLUMNS} FROM audience_insights${audience.where} ORDER BY account_id, dimension, value DESC`,
       )
       .bind(...audience.params),
+    db
+      .prepare(
+        `SELECT ${SITE_EVENT_COLUMNS} FROM site_events${events.where} ORDER BY occurred_at DESC`,
+      )
+      .bind(...events.params),
   ]);
 
   return assembleDataset(meta, {
@@ -530,5 +606,6 @@ export async function getDataset(): Promise<Dataset> {
     pages: rowsOf<PageRow>(pageResult),
     search: rowsOf<SearchRow>(searchResult),
     audience: rowsOf<AudienceRow>(audienceResult),
+    events: rowsOf<SiteEventRow>(eventResult),
   });
 }

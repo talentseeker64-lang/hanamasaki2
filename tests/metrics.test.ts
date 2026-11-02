@@ -57,6 +57,7 @@ function emptyDataset(overrides: Partial<Dataset> = {}): Dataset {
     pages: [],
     search: [],
     audience: [],
+    events: [],
     ...overrides,
   };
 }
