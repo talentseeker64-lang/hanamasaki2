@@ -130,8 +130,9 @@ kebocoran ke dalam fondasi.
   yang sama masih dapat dibuka tanpa kredensial; membatasinya memerlukan
   autentikasi pengguna sungguhan, yang belum ada di fase ini. Token bersama
   `x-admin-token` hanyalah penghalang, bukan autentikasi.
-- Migrasi `0004` (dan `0003`/`0005`) belum diterapkan ke D1 remote. Registri
-  integrasi dan riwayat sinkronisasi baru aktif setelah migrasi dijalankan.
+- Migrasi `0004` (bersama `0005`) **sudah diterapkan** ke D1 remote pada
+  2026-11-02; `0003` ternyata sudah diterapkan lebih dulu. Yang belum diterapkan
+  ke remote hanyalah **seed** — lihat §11 `docs/REMOTE_DATA_INVENTORY.md`.
 
 ### Bukti verifikasi (dari disk, bukan laporan)
 
@@ -143,26 +144,54 @@ kebocoran ke dalam fondasi.
 
 ---
 
-## Phase 3 — FYP & Content Intelligence
+## Phase 3 — FYP & Content Intelligence · SELESAI
 
 **Tujuan:** menganalisis potensi performa konten dan peluang distribusi.
 
-| No | Pekerjaan | Keterbatasan yang harus diakui |
-| --- | --- | --- |
-| 1 | Analisis struktur konten | Hanya dari metadata yang tersedia |
-| 2 | Klasifikasi topik | Memerlukan pelabelan; kualitas bergantung pada data awal |
-| 3 | Analisis format dan durasi | Tersedia |
-| 4 | Deteksi pola interaksi | Tersedia |
-| 5 | Analisis tren | Butuh data historis memadai |
-| 6 | Indikator shareability | Tersedia dari shares/saves |
-| 7 | **Skor potensi FYP** | **Estimasi relatif**, bukan prediksi algoritma |
-| 8 | Rekomendasi script dan caption | Layer 2 LLM baru; belum ada di fase ini |
-| 9 | Analisis hook 3 detik | **Hanya mungkin untuk YouTube** (retensi). Untuk TikTok dan Instagram: `unavailable` |
+| No | Pekerjaan | Keterbatasan yang harus diakui | Wujud di kode |
+| --- | --- | --- | --- |
+| 1 | Analisis struktur konten | Hanya dari metadata yang tersedia | `performanceByFormat`/`performanceByDuration` (`lib/metrics.ts`) |
+| 2 | Klasifikasi topik | Memerlukan pelabelan; kualitas bergantung pada data awal | `performanceByTopic`; `topicMomentum` (`lib/fyp.ts`) |
+| 3 | Analisis format dan durasi | Tersedia | `performanceByDuration`, `durationCoverage` |
+| 4 | Deteksi pola interaksi | Tersedia | `engagementRateOf`, `performanceByHour`/`Weekday` |
+| 5 | Analisis tren | Butuh data historis memadai | `topicMomentum` — topik satu-sisi tidak dihitung |
+| 6 | Indikator shareability | Tersedia dari shares/saves | `perThousand`, `fypBenchmark` |
+| 7 | **Skor potensi FYP** | **Estimasi relatif**, bukan prediksi algoritma | `assessContent`/`fypAssessments`; halaman `/fyp` |
+| 8 | Rekomendasi script dan caption | Layer 2 LLM baru; belum ada di fase ini | **belum dikerjakan** (sesuai batas fase) |
+| 9 | Analisis hook 3 detik | **Hanya mungkin untuk YouTube** (retensi) | Selalu `unavailable` dengan alasan tertulis (`FYP_HOOK_REASON`) |
 
 **Larangan tegas:** tidak boleh ada klaim atau antarmuka yang menyiratkan jaminan
 masuk FYP. Skor harus disajikan sebagai perbandingan terhadap konten sendiri.
 
 **Deliverable:** FYP & Viral Potential Intelligence dengan batas yang dinyatakan terbuka.
+
+### Cara skor dinyatakan jujur
+
+- Pembanding **selalu dari kanal yang sama**. `fypAssessments` mewajibkan argumen
+  `platform`; tidak ada bentuk pemanggilan yang mencampur kanal, karena definisi
+  tayangan tiap platform berbeda.
+- `FYP_CAVEAT` ditampilkan sebagai kartu peringatan di atas daftar, bukan catatan
+  kaki kecil.
+- Indikator `hook` **tidak pernah** diisi angka: ia selalu muncul di daftar
+  “belum tersedia” beserta alasan yang dapat diperiksa.
+- Topik yang hanya muncul di satu sisi jendela tren tidak menghasilkan arah tren;
+  ia ditandai `unavailable`, bukan ditebak.
+- Bobot indikator dinyatakan terbuka di antarmuka dan diakui sebagai pilihan, bukan
+  hasil kalibrasi terhadap data FYP nyata — data itu tidak ada.
+
+### Bukti verifikasi (dari disk, bukan laporan)
+
+- `npx tsc --noEmit` — bersih.
+- `npm test` — 102 lulus, 0 gagal (20 baru di `tests/fyp.test.ts`).
+- `npm run lint` — bersih.
+- `npm run build` — sukses; rute `/fyp` terdaftar.
+
+### Batas yang belum tertutup
+
+- Pekerjaan 8 (rekomendasi script/caption) menunggu Layer 2 LLM; sengaja tidak
+  dikerjakan di fase ini.
+- Analisis hook tetap kosong sampai kurva retensi YouTube Analytics benar-benar
+  ditarik ke basis data.
 
 ---
 

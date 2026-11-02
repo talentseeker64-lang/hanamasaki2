@@ -46,6 +46,12 @@ const NAV: NavItem[] = [
     icon: "M21 12a8 8 0 0 1-11.6 7.1L4 21l1.9-5.4A8 8 0 1 1 21 12Z",
   },
   {
+    href: "/fyp",
+    label: "FYP & Viral",
+    hint: "Potensi distribusi relatif",
+    icon: "M3 17l6-6 4 4 8-9M14 6h7v7",
+  },
+  {
     href: "/website",
     label: "Website Analytics",
     hint: "Trafik dan konversi",

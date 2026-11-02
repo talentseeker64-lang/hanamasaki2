@@ -30,6 +30,11 @@ export function safeDiv(a: number, b: number): number {
   return b === 0 ? 0 : a / b;
 }
 
+/** Rata-rata; himpunan kosong menghasilkan 0 agar tidak muncul NaN. */
+export function mean(values: number[]): number {
+  return values.length === 0 ? 0 : sum(values) / values.length;
+}
+
 /* ------------------------------------------------------------------ */
 /* Jendela berbasis tanggal                                            */
 /* ------------------------------------------------------------------ */
