@@ -27,9 +27,17 @@ export const YOUTUBE_SCOPES = [
 
 /** Kesalahan dari sisi Google atau konfigurasi yang aman ditampilkan ke admin. */
 export class GoogleApiError extends Error {
-  constructor(message: string) {
+  /**
+   * Kode HTTP respons Google, atau `null` bila kegagalannya bukan dari respons
+   * (mis. konfigurasi belum diatur). Dipakai `lib/retry.ts` untuk membedakan
+   * kegagalan sementara (429, 5xx) dari kegagalan permanen (izin ditolak).
+   */
+  readonly status: number | null;
+
+  constructor(message: string, status: number | null = null) {
     super(message);
     this.name = "GoogleApiError";
+    this.status = status;
   }
 }
 
@@ -99,10 +107,13 @@ export function buildGoogleAuthorizeUrl(
 async function readGoogle(response: Response): Promise<Record<string, unknown>> {
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (payload === null) {
-    throw new GoogleApiError(`Respons Google tidak dapat dibaca (HTTP ${response.status}).`);
+    throw new GoogleApiError(`Respons Google tidak dapat dibaca (HTTP ${response.status}).`, response.status);
   }
   if (!response.ok) {
-    throw new GoogleApiError(`Google menolak permintaan: ${describeError(payload, response.status)}`);
+    throw new GoogleApiError(
+      `Google menolak permintaan: ${describeError(payload, response.status)}`,
+      response.status,
+    );
   }
   return payload;
 }

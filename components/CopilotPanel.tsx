@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { useAdminToken } from "@/components/form";
+import { sendWrite } from "@/lib/admin-client";
 import type { CopilotAnswer } from "@/lib/types";
 
 export default function CopilotPanel({
@@ -10,6 +12,7 @@ export default function CopilotPanel({
   suggestions: string[];
   initialAnswer: CopilotAnswer;
 }) {
+  const [token] = useAdminToken();
   const [question, setQuestion] = useState("");
   const [answer, setAnswer] = useState<CopilotAnswer>(initialAnswer);
   const [pending, setPending] = useState(false);
@@ -17,21 +20,21 @@ export default function CopilotPanel({
 
   async function ask(nextQuestion: string) {
     if (!nextQuestion.trim()) return;
+    if (!token) {
+      setError("Token admin belum diisi di menu Settings. Copilot melayani permintaan bertoken.");
+      return;
+    }
     setPending(true);
     setError(null);
-    try {
-      const response = await fetch("/api/copilot", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: nextQuestion }),
-      });
-      if (!response.ok) throw new Error(`Permintaan gagal (${response.status})`);
-      setAnswer((await response.json()) as CopilotAnswer);
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Terjadi kesalahan tidak terduga.");
-    } finally {
-      setPending(false);
+    const outcome = await sendWrite<CopilotAnswer>(token, "/api/copilot", "POST", {
+      question: nextQuestion,
+    });
+    if (outcome.ok) {
+      setAnswer(outcome.data);
+    } else {
+      setError(outcome.error);
     }
+    setPending(false);
   }
 
   return (

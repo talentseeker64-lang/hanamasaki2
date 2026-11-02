@@ -1,4 +1,4 @@
-import type { Severity, Platform } from "@/lib/types";
+import type { DataProvenance, Severity, Platform } from "@/lib/types";
 import { formatDelta, formatPoints } from "@/lib/format";
 
 export function Card({
@@ -187,16 +187,22 @@ export function MetricRow({
   value,
   change,
   hint,
+  provenance,
 }: {
   label: string;
   value: string;
   change?: number;
   hint?: string;
+  /** Asal data untuk angka pada baris ini; opsional. */
+  provenance?: DataProvenance;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-3 border-b border-slate-100 py-2 last:border-b-0">
       <div>
-        <p className="text-sm text-slate-700">{label}</p>
+        <p className="flex items-center gap-2 text-sm text-slate-700">
+          {label}
+          {provenance ? <ProvenanceBadge provenance={provenance} /> : null}
+        </p>
         {hint ? <p className="text-xs text-slate-400">{hint}</p> : null}
       </div>
       <div className="text-right">
@@ -212,6 +218,40 @@ export function MetricRow({
         )}
       </div>
     </div>
+  );
+}
+
+const PROVENANCE_STYLE: Record<DataProvenance, { label: string; className: string }> = {
+  "platform-api": {
+    label: "Sinkron API",
+    className: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+  },
+  import: { label: "Impor", className: "bg-sky-50 text-sky-700 ring-1 ring-sky-200" },
+  seed: { label: "Ilustratif", className: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
+  "legacy-unknown": {
+    label: "Asal tak diketahui",
+    className: "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
+  },
+  mixed: { label: "Campuran", className: "bg-amber-50 text-amber-700 ring-1 ring-amber-200" },
+  empty: { label: "Tanpa data", className: "bg-slate-100 text-slate-500 ring-1 ring-slate-200" },
+};
+
+/**
+ * Penanda asal data untuk satu angka.
+ *
+ * Ditempelkan pada KPI/baris metrik yang bersangkutan, supaya pembaca tahu
+ * apakah angkanya berasal dari API platform, data ilustratif, atau baris yang
+ * asalnya tidak dapat dibuktikan — bukan dari badge global di header.
+ */
+export function ProvenanceBadge({ provenance }: { provenance: DataProvenance }) {
+  const style = PROVENANCE_STYLE[provenance];
+  return (
+    <span
+      className={`inline-flex rounded px-1.5 py-0.5 text-[10px] font-semibold ${style.className}`}
+      title={`Asal data: ${style.label}`}
+    >
+      {style.label}
+    </span>
   );
 }
 
@@ -245,6 +285,7 @@ export function KpiCard({
   hint,
   invertChange = false,
   asPoints = false,
+  provenance,
 }: {
   label: string;
   value: string;
@@ -252,10 +293,15 @@ export function KpiCard({
   hint?: string;
   invertChange?: boolean;
   asPoints?: boolean;
+  /** Asal data untuk angka pada kartu ini; opsional. */
+  provenance?: DataProvenance;
 }) {
   return (
     <Card className="p-5">
-      <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</p>
+        {provenance ? <ProvenanceBadge provenance={provenance} /> : null}
+      </div>
       <p className="mt-2 text-2xl font-semibold tabular-nums text-slate-900">{value}</p>
       {change === undefined ? null : (
         <div className="mt-2">

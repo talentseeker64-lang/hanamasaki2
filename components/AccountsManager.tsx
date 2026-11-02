@@ -14,6 +14,7 @@ import {
   useAdminToken,
 } from "@/components/form";
 import { sendWrite } from "@/lib/admin-client";
+import { connectionBadge, syncFreshness } from "@/lib/accounts";
 import { formatDateTime, formatNumber } from "@/lib/format";
 import type { ChannelAccount, ConnectionState, CredentialSummary, Platform } from "@/lib/types";
 import { CONNECTION_STATES, PLATFORMS } from "@/lib/validation";
@@ -33,12 +34,6 @@ const CONNECTION_LABEL: Record<ConnectionState, string> = {
   not_connected: "Belum terhubung",
 };
 
-const CONNECTION_STYLE: Record<ConnectionState, string> = {
-  connected: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-  needs_review: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
-  not_connected: "bg-slate-100 text-slate-600 ring-1 ring-slate-200",
-};
-
 /**
  * Platform yang alur izinnya sudah dapat dijalankan dari halaman ini,
  * beserta endpoint mulai OAuth milik penyedianya.
@@ -48,26 +43,6 @@ const OAUTH_PROVIDER: Partial<Record<Platform, { path: string; label: string }>>
   facebook: { path: "/api/oauth/meta/start", label: "Hubungkan via Meta" },
   youtube: { path: "/api/oauth/google/start", label: "Hubungkan via Google" },
 };
-
-/**
- * Label status koneksi yang jujur.
- *
- * `connection` adalah pilihan manual, jadi ia tidak boleh tampil sebagai bukti
- * koneksi hidup. Bukti itu baru ada setelah sinkronisasi berhasil memanggil API
- * platform — dan hanya saat itulah `lastSyncAt` terisi.
- */
-function connectionBadge(account: ChannelAccount): { label: string; className: string } {
-  if (account.lastSyncAt) {
-    return {
-      label: "Terhubung (terverifikasi)",
-      className: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
-    };
-  }
-  return {
-    label: CONNECTION_LABEL[account.connection],
-    className: CONNECTION_STYLE[account.connection],
-  };
-}
 
 interface AccountDraft {
   platform: Platform;
@@ -146,10 +121,16 @@ function toCredentialPayload(draft: CredentialDraft) {
 export function AccountsManager({
   accounts,
   credentials,
+  syncedPlatforms,
   notice = null,
 }: {
   accounts: ChannelAccount[];
   credentials: CredentialSummary[];
+  /**
+   * Platform yang metrik hariannya benar-benar pernah ditulis sinkronisasi API.
+   * Dipakai agar label "terverifikasi" tidak muncul hanya karena pengikut dibaca.
+   */
+  syncedPlatforms: Platform[];
   /** Hasil alur OAuth yang diteruskan server dari parameter URL. */
   notice?: { tone: "ok" | "error"; text: string } | null;
 }) {
@@ -347,7 +328,8 @@ export function AccountsManager({
           const credential = credentialOf(account.id);
           const isEditing = editingId === account.id;
           const isEditingCredential = credentialId === account.id;
-          const badge = connectionBadge(account);
+          const badge = connectionBadge(account, syncedPlatforms.includes(account.platform));
+          const freshness = syncFreshness(account.lastSyncAt);
           const provider = OAUTH_PROVIDER[account.platform];
 
           return (
@@ -380,6 +362,16 @@ export function AccountsManager({
                     <dt className="text-[11px] text-slate-400">Sinkronisasi terakhir</dt>
                     <dd className="text-sm text-slate-700">
                       {account.lastSyncAt ? formatDateTime(account.lastSyncAt) : "Belum tersinkron"}
+                    </dd>
+                    <dd className="mt-1 flex items-center gap-2">
+                      <span
+                        className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ${freshness.className}`}
+                      >
+                        {freshness.label}
+                      </span>
+                      {freshness.detail ? (
+                        <span className="text-[10px] text-slate-400">{freshness.detail}</span>
+                      ) : null}
                     </dd>
                   </div>
                 </dl>

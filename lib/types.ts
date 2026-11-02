@@ -14,6 +14,26 @@ export type CommentIntent = "question" | "complaint" | "praise" | "idea" | "othe
 
 export type Severity = "critical" | "high" | "medium" | "low" | "info";
 
+/**
+ * Asal sebuah baris data.
+ *
+ * Menentukan apakah angkanya boleh diperlakukan sebagai data bisnis:
+ * `platform-api` berasal dari panggilan API yang berhasil; `import` berasal dari
+ * berkas yang dimasukkan pengguna; `seed` dibangkitkan generator ilustratif;
+ * `legacy-unknown` berarti asalnya tidak dapat dibuktikan sehingga angkanya tidak
+ * boleh dipakai sebagai dasar keputusan.
+ */
+export type DataSourceKind = "platform-api" | "import" | "seed" | "legacy-unknown";
+
+/**
+ * Ringkasan asal data untuk sekumpulan baris.
+ *
+ * `mixed` dipakai bila baris-barisnya tidak seragam — angka turunannya tetap
+ * ditampilkan, tetapi pembacanya diberi tahu bahwa sebagian berasal dari data
+ * ilustratif. `empty` berarti tidak ada baris sama sekali.
+ */
+export type DataProvenance = DataSourceKind | "mixed" | "empty";
+
 /** Metrik harian per kanal sosial. Satu baris = satu platform pada satu tanggal. */
 export interface DailySocialMetric {
   date: string;
@@ -30,6 +50,7 @@ export interface DailySocialMetric {
   profileVisits: number;
   /** Klik tautan keluar (bio / deskripsi) — jembatan menuju website. */
   linkClicks: number;
+  sourceKind: DataSourceKind;
 }
 
 export interface ContentItem {
@@ -45,6 +66,55 @@ export interface ContentItem {
   shares: number;
   saves: number;
   linkClicks: number;
+  /**
+   * Durasi konten dalam detik, atau `null` bila platform tidak melaporkannya.
+   *
+   * `null` berarti "tidak diketahui", bukan nol: konten bergambar tidak punya
+   * durasi, dan sebagian platform tidak mengirimkan durasi sama sekali.
+   */
+  durationSeconds: number | null;
+  sourceKind: DataSourceKind;
+}
+
+/**
+ * Dimensi demografi audiens yang benar-benar tersedia lewat API platform.
+ *
+ * `hour_of_day` dan `retention` sengaja tidak ada di sini: keduanya tidak
+ * disediakan API mana pun (jam aktif audiens) atau hanya milik YouTube
+ * (retensi), sehingga menyediakannya akan mengundang angka karangan.
+ */
+export type AudienceDimension = "age" | "gender" | "country" | "city";
+
+/**
+ * Satu potongan demografi audiens untuk sebuah akun.
+ *
+ * `value` mengikuti `unit` pada baris basis data: proporsi audiens atau jumlah
+ * orang, bergantung pada apa yang dilaporkan platform.
+ */
+export interface AudienceInsight {
+  id: string;
+  accountId: string;
+  dimension: AudienceDimension;
+  /** Nilai dimensi, mis. `25-34` atau `Jakarta`. */
+  bucket: string;
+  value: number;
+  periodStart: string;
+  periodEnd: string;
+  sourceKind: DataSourceKind;
+}
+
+/**
+ * Satu titik demografi yang baru dibaca dari API platform.
+ *
+ * Namanya sengaja berbeda dari `AudienceInsight`: bentuk ini belum punya
+ * identitas akun, periode, maupun provenance, dan `bucket`-nya masih memakai
+ * kosakata platform asalnya. Normalisasi ke kosakata basis data dikerjakan jalur
+ * tulis, bukan di sini.
+ */
+export interface AudiencePoint {
+  dimension: AudienceDimension;
+  bucket: string;
+  value: number;
 }
 
 export interface CommentItem {
@@ -57,6 +127,7 @@ export interface CommentItem {
   intent: CommentIntent;
   createdAt: string;
   likes: number;
+  sourceKind: DataSourceKind;
 }
 
 export interface DailyWebMetric {
@@ -69,6 +140,7 @@ export interface DailyWebMetric {
   bounceRate: number;
   avgSessionSeconds: number;
   conversions: number;
+  sourceKind: DataSourceKind;
 }
 
 export type TrafficChannel =
@@ -91,6 +163,7 @@ export interface TrafficSource {
   conversionsPrev: number;
   /** Rasio dalam persen, 0-100. */
   bounceRate: number;
+  sourceKind: DataSourceKind;
 }
 
 export interface LandingPage {
@@ -106,6 +179,7 @@ export interface LandingPage {
   avgSeconds: number;
   /** Rasio dalam persen, 0-100. */
   exitRate: number;
+  sourceKind: DataSourceKind;
 }
 
 export interface SearchMetric {
@@ -117,6 +191,7 @@ export interface SearchMetric {
   ctr: number;
   position: number;
   positionPrev: number;
+  sourceKind: DataSourceKind;
 }
 
 export type ConnectionState = "connected" | "needs_review" | "not_connected";
@@ -206,6 +281,11 @@ export interface Dataset {
   sources: TrafficSource[];
   pages: LandingPage[];
   search: SearchMetric[];
+  /**
+   * Demografi audiens. Kosong berarti platform tidak menyediakannya — UI wajib
+   * menampilkan "belum tersedia" alih-alih mengisi angka apa pun.
+   */
+  audience: AudienceInsight[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -263,4 +343,54 @@ export interface CredentialSummary {
   accountId: string;
   clientId: string;
   updatedAt: string;
+}
+
+/* ------------------------------------------------------------------ */
+/* Registri integrasi — tabel D1 tersendiri (migrasi 0004)             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Status sebuah sumber data, dipakai konsisten di seluruh dashboard.
+ *
+ * Kosakata ini sengaja tidak menyatukan "belum terhubung" dengan "gagal":
+ * keduanya butuh tindakan yang berbeda, dan `unavailable` (platform tidak
+ * menyediakan metriknya) bukan `0` maupun perkiraan.
+ */
+export type DataStatus =
+  | "connected"
+  | "syncing"
+  | "synced"
+  | "stale"
+  | "error"
+  | "not_connected"
+  | "unavailable";
+
+/** Kelompok sumber data pada registri integrasi. */
+export type IntegrationKind = "social" | "website" | "utm" | "whatsapp" | "crm" | "marketplace";
+
+/** Status satu eksekusi sinkronisasi. */
+export type SyncJobStatus = "running" | "ok" | "partial" | "error";
+
+export interface Integration {
+  id: string;
+  kind: IntegrationKind;
+  /** Penyedia konkret, mis. `meta`, `google`, `ga4`. */
+  provider: string;
+  /** Akun terkait bila berlaku; `null` untuk sumber yang bukan akun. */
+  accountId: string | null;
+  status: DataStatus;
+  lastSyncAt: string | null;
+  lastError: string | null;
+  createdAt: string;
+}
+
+export interface SyncJob {
+  id: string;
+  integrationId: string;
+  startedAt: string;
+  finishedAt: string | null;
+  status: SyncJobStatus;
+  /** Jumlah baris metrik yang benar-benar tertulis. */
+  rowsWritten: number;
+  message: string;
 }

@@ -3,6 +3,7 @@ import { Card, CardHeader, DataNotice, PageHeader, PageSkeleton } from "@/compon
 import { AccountsManager } from "@/components/AccountsManager";
 import { listCredentialSummaries } from "@/lib/credentials";
 import { getDataset } from "@/lib/data";
+import { apiSyncedPlatforms } from "@/lib/metrics";
 import type { ConnectionState } from "@/lib/types";
 
 // Status ini diisi manual oleh admin, bukan hasil verifikasi OAuth. Karena itu
@@ -147,6 +148,7 @@ async function IntegrationsContent({ searchParams }: { searchParams: SearchParam
       <AccountsManager
         accounts={dataset.accounts}
         credentials={credentials}
+        syncedPlatforms={[...apiSyncedPlatforms(dataset)]}
         notice={notice}
       />
 
@@ -165,7 +167,7 @@ async function IntegrationsContent({ searchParams }: { searchParams: SearchParam
             </div>
             <p className="mt-2 text-xs leading-relaxed text-slate-500">
               Menyediakan sesi, pengguna, tampilan halaman, sumber trafik, rasio pentalan, dan
-              konversi. Properti contoh: hanamasak.example.com
+              konversi. Properti yang dipantau ditetapkan saat integrasi analytics dihubungkan.
             </p>
           </div>
           <div className="rounded-lg border border-slate-200 p-4">

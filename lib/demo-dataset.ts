@@ -1,4 +1,6 @@
 import type {
+  AudienceDimension,
+  AudienceInsight,
   ChannelAccount,
   CommentIntent,
   CommentItem,
@@ -183,6 +185,7 @@ function buildSocial(dates: string[]): DailySocialMetric[] {
           jitter(`${key}:views`, 0.09),
       );
       rows.push({
+        sourceKind: "seed",
         date,
         platform,
         views,
@@ -273,6 +276,7 @@ function buildWeb(dates: string[], social: DailySocialMetric[]) {
     const convRate = 0.031 * trailingRamp(dayIndex, 0.822);
     const users = Math.round(sessions * 0.86 * jitter(`users:${date}`, 0.04));
     return {
+      sourceKind: "seed",
       date,
       sessions,
       users,
@@ -291,6 +295,7 @@ function buildWeb(dates: string[], social: DailySocialMetric[]) {
       const sessionsPrev = Math.round(sumWindow(series, RANGE_DAYS, RANGE_DAYS));
       const convRate = 0.031 * 0.9;
       return {
+        sourceKind: "seed" as const,
         source: platformLabel(platform),
         channel: "social" as TrafficChannel,
         platform,
@@ -307,6 +312,7 @@ function buildWeb(dates: string[], social: DailySocialMetric[]) {
       const sessionsPrev = Math.round(sumWindow(series, RANGE_DAYS, RANGE_DAYS));
       const convRate = (0.031 * profile.convIndex * 0.9) / 1.05;
       return {
+        sourceKind: "seed" as const,
         source: profile.source,
         channel: profile.channel,
         platform: null,
@@ -379,6 +385,7 @@ function buildPages(web: DailyWebMetric[]): LandingPage[] {
   const conv7Prev = sumWindow(convSeries, WINDOW, WINDOW);
 
   return PAGE_PROFILES.map((profile) => ({
+    sourceKind: "seed" as const,
     path: profile.path,
     title: profile.title,
     views30: Math.round(views30 * profile.share),
@@ -426,6 +433,7 @@ function buildSearch(): SearchMetric[] {
     const ctr = ctrFromPosition(profile.position);
     const ctrPrev = ctrFromPosition(profile.positionPrev);
     return {
+      sourceKind: "seed" as const,
       query: profile.query,
       impressions: profile.impressions,
       clicks: Math.round(profile.impressions * ctr),
@@ -525,6 +533,26 @@ const PUBLISH_PROBABILITY: Record<Platform, number> = {
   facebook: 0.34,
 };
 
+/**
+ * Durasi ilustratif untuk konten seed.
+ *
+ * `null` dikembalikan untuk format yang memang tidak punya durasi — carousel,
+ * post, dan story. Mengisinya dengan angka akan membuat konten bergambar tampak
+ * seperti video pendek di analisis durasi.
+ */
+function durationFor(format: ContentFormat, key: string): number | null {
+  switch (format) {
+    case "shorts":
+      return 15 + Math.floor(random(`${key}:duration`) * 46);
+    case "reels":
+      return 15 + Math.floor(random(`${key}:duration`) * 76);
+    case "video":
+      return 180 + Math.floor(random(`${key}:duration`) * 721);
+    default:
+      return null;
+  }
+}
+
 function buildContent(dates: string[], social: DailySocialMetric[]): ContentItem[] {
   const dailyViews = new Map<string, number>();
   for (const row of social) dailyViews.set(`${row.platform}:${row.date}`, row.views);
@@ -549,6 +577,7 @@ function buildContent(dates: string[], social: DailySocialMetric[]): ContentItem
       );
       const hour = pick(PUBLISH_HOURS, `${key}:hour`);
       items.push({
+        sourceKind: "seed",
         id: `${platform}-${date}-${hour}`,
         platform,
         title,
@@ -561,6 +590,7 @@ function buildContent(dates: string[], social: DailySocialMetric[]): ContentItem
         shares: Math.round(views * profile.shareRate * jitter(`${key}:share`, 0.25)),
         saves: Math.round(views * profile.saveRate * jitter(`${key}:save`, 0.25)),
         linkClicks: Math.round(views * linkCtr(profile, dayIndex) * jitter(`${key}:ctr`, 0.2)),
+        durationSeconds: durationFor(format, key),
       });
     }
   });
@@ -665,6 +695,7 @@ function buildComments(dates: string[]): CommentItem[] {
     const minute = String(Math.floor(random(`${key}:m`) * 60)).padStart(2, "0");
     const author = pick(COMMENT_AUTHORS, `${key}:a`);
     items.push({
+      sourceKind: "seed",
       id: `c-${i}`,
       platform: pick(PLATFORM_COMMENT_WEIGHT, `${key}:p`),
       topic: template.topic,
@@ -677,6 +708,139 @@ function buildComments(dates: string[]): CommentItem[] {
     });
   }
   return items.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+/* ------------------------------------------------------------------ */
+/* Demografi audiens                                                   */
+/* ------------------------------------------------------------------ */
+
+interface AudienceSeed {
+  accountId: string;
+  dimension: AudienceDimension;
+  /** Bobot relatif antar-bucket; dinormalkan menjadi persentase. */
+  buckets: { bucket: string; weight: number }[];
+}
+
+/**
+ * Demografi ilustratif, hanya untuk akun yang platformnya memang menyediakan
+ * data ini lewat API.
+ *
+ * TikTok sengaja tidak punya baris sama sekali supaya keadaan "belum tersedia"
+ * benar-benar terlihat di UI — bukan diisi angka karangan agar tampak lengkap.
+ */
+const AUDIENCE_SEED: AudienceSeed[] = [
+  {
+    accountId: "acc-ig",
+    dimension: "age",
+    buckets: [
+      { bucket: "13-17", weight: 6 },
+      { bucket: "18-24", weight: 28 },
+      { bucket: "25-34", weight: 34 },
+      { bucket: "35-44", weight: 18 },
+      { bucket: "45-54", weight: 9 },
+      { bucket: "55+", weight: 5 },
+    ],
+  },
+  {
+    accountId: "acc-ig",
+    dimension: "gender",
+    buckets: [
+      { bucket: "Perempuan", weight: 61 },
+      { bucket: "Laki-laki", weight: 39 },
+    ],
+  },
+  {
+    accountId: "acc-ig",
+    dimension: "country",
+    buckets: [
+      { bucket: "Indonesia", weight: 92 },
+      { bucket: "Malaysia", weight: 4 },
+      { bucket: "Singapura", weight: 2.5 },
+      { bucket: "Lainnya", weight: 1.5 },
+    ],
+  },
+  {
+    accountId: "acc-ig",
+    dimension: "city",
+    buckets: [
+      { bucket: "Jakarta", weight: 34 },
+      { bucket: "Bandung", weight: 12 },
+      { bucket: "Surabaya", weight: 11 },
+      { bucket: "Medan", weight: 7 },
+      { bucket: "Lainnya", weight: 36 },
+    ],
+  },
+  {
+    accountId: "acc-fb",
+    dimension: "age",
+    buckets: [
+      { bucket: "13-17", weight: 3 },
+      { bucket: "18-24", weight: 12 },
+      { bucket: "25-34", weight: 26 },
+      { bucket: "35-44", weight: 27 },
+      { bucket: "45-54", weight: 20 },
+      { bucket: "55+", weight: 12 },
+    ],
+  },
+  {
+    accountId: "acc-fb",
+    dimension: "gender",
+    buckets: [
+      { bucket: "Perempuan", weight: 54 },
+      { bucket: "Laki-laki", weight: 46 },
+    ],
+  },
+  {
+    accountId: "acc-fb",
+    dimension: "city",
+    buckets: [
+      { bucket: "Jakarta", weight: 22 },
+      { bucket: "Bandung", weight: 9 },
+      { bucket: "Surabaya", weight: 14 },
+      { bucket: "Medan", weight: 11 },
+      { bucket: "Lainnya", weight: 44 },
+    ],
+  },
+  {
+    accountId: "acc-yt",
+    dimension: "age",
+    buckets: [
+      { bucket: "13-17", weight: 9 },
+      { bucket: "18-24", weight: 22 },
+      { bucket: "25-34", weight: 33 },
+      { bucket: "35-44", weight: 20 },
+      { bucket: "45-54", weight: 11 },
+      { bucket: "55+", weight: 5 },
+    ],
+  },
+  {
+    accountId: "acc-yt",
+    dimension: "gender",
+    buckets: [
+      { bucket: "Laki-laki", weight: 57 },
+      { bucket: "Perempuan", weight: 43 },
+    ],
+  },
+];
+
+function buildAudience(periodStart: string): AudienceInsight[] {
+  const rows: AudienceInsight[] = [];
+  for (const spec of AUDIENCE_SEED) {
+    const total = spec.buckets.reduce((sum, bucket) => sum + bucket.weight, 0);
+    for (const bucket of spec.buckets) {
+      rows.push({
+        sourceKind: "seed",
+        id: `${spec.accountId}:${spec.dimension}:${bucket.bucket}`,
+        accountId: spec.accountId,
+        dimension: spec.dimension,
+        bucket: bucket.bucket,
+        value: Math.round((bucket.weight / total) * 1000) / 10,
+        periodStart,
+        periodEnd: RANGE_END,
+      });
+    }
+  }
+  return rows;
 }
 
 /* ------------------------------------------------------------------ */
@@ -776,6 +940,7 @@ export function buildDemoDataset(): Dataset {
     sources,
     pages: buildPages(web),
     search: buildSearch(),
+    audience: buildAudience(dates[dates.length - RANGE_DAYS]),
   };
   return cached;
 }

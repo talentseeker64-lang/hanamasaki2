@@ -1,8 +1,13 @@
-import { RANGE_DAYS, RANGE_TOTAL, WINDOW } from "./data";
+import { RANGE_DAYS, RANGE_TOTAL, WINDOW } from "./demo-dataset";
 import type {
+  AudienceDimension,
+  AudienceInsight,
   CommentIntent,
   CommentItem,
   ContentItem,
+  DailySocialMetric,
+  DataProvenance,
+  DataSourceKind,
   Dataset,
   KpiSummary,
   Platform,
@@ -25,11 +30,115 @@ export function safeDiv(a: number, b: number): number {
   return b === 0 ? 0 : a / b;
 }
 
-/** Jumlahkan `size` nilai terakhir, dengan `offset` elemen dilewati dari akhir. */
-export function windowSum(values: number[], size: number, offset = 0): number {
-  const end = values.length - offset;
-  const start = Math.max(0, end - size);
-  return sum(values.slice(start, end));
+/* ------------------------------------------------------------------ */
+/* Jendela berbasis tanggal                                            */
+/* ------------------------------------------------------------------ */
+
+/** Rentang tanggal inklusif. */
+export interface DateWindow {
+  start: string;
+  end: string;
+}
+
+/** Geser tanggal ISO (`YYYY-MM-DD`) sebanyak `days` hari; negatif berarti mundur. */
+export function shiftDate(iso: string, days: number): string {
+  const date = new Date(`${iso}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * Jendela `days` hari yang berakhir pada `end`, beserta jendela pembanding tepat
+ * sebelumnya.
+ *
+ * Batasnya tanggal, bukan posisi baris. Itulah intinya: kanal yang belum
+ * tersinkronisasi tidak lagi menggeser periode kanal lain, dan menambah data di
+ * luar rentang tidak mengubah angka yang sedang dibandingkan.
+ */
+export function trailingWindows(
+  end: string,
+  days: number,
+): { current: DateWindow; previous: DateWindow } {
+  return {
+    current: { start: shiftDate(end, -(days - 1)), end },
+    previous: { start: shiftDate(end, -(days * 2 - 1)), end: shiftDate(end, -days) },
+  };
+}
+
+/** Apakah tanggal ISO (`YYYY-MM-DD`) berada di dalam jendela, inklusif. */
+export function inWindow(date: string, window: DateWindow): boolean {
+  return date >= window.start && date <= window.end;
+}
+
+/* ------------------------------------------------------------------ */
+/* Provenance                                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Ringkasan asal data untuk sekumpulan baris.
+ *
+ * Dipakai supaya penanda asal data menempel pada angka yang benar-benar
+ * ditampilkan, bukan pada seluruh aplikasi. Kumpulan baris yang tidak seragam
+ * dilaporkan `mixed`, agar angkanya tidak tampak lebih terpercaya daripada
+ * kenyataannya.
+ */
+export function provenanceOf(rows: Array<{ sourceKind: DataSourceKind }>): DataProvenance {
+  if (rows.length === 0) return "empty";
+  const kinds = new Set(rows.map((row) => row.sourceKind));
+  if (kinds.size > 1) return "mixed";
+  return [...kinds][0];
+}
+
+/**
+ * Platform yang metrik hariannya benar-benar pernah ditulis sinkronisasi API.
+ *
+ * Dipakai untuk memisahkan koneksi yang terbukti dari koneksi yang baru sempat
+ * membaca pengikut: `lastSyncAt` saja tidak cukup karena `recordFollowers`
+ * mengisinya walau metrik utama kanal belum pernah berhasil diambil.
+ */
+export function apiSyncedPlatforms(dataset: Dataset): Set<Platform> {
+  return new Set(
+    dataset.social.filter((row) => row.sourceKind === "platform-api").map((row) => row.platform),
+  );
+}
+
+/**
+ * Asal data untuk sekumpulan baris metrik pada jendela berjalan.
+ *
+ * Dipakai agar badge provenance menempel pada angka yang benar-benar
+ * ditampilkan — bukan pada seluruh aplikasi. Baris di luar jendela tidak ikut
+ * dihitung, sama seperti agregatnya.
+ */
+export function socialProvenance(
+  dataset: Dataset,
+  platform?: Platform,
+  days = RANGE_DAYS,
+): DataProvenance {
+  const window = trailingWindows(dataset.range.end, days).current;
+  return provenanceOf(
+    dataset.social.filter(
+      (row) => inWindow(row.date, window) && (!platform || row.platform === platform),
+    ),
+  );
+}
+
+export function webProvenance(dataset: Dataset, days = RANGE_DAYS): DataProvenance {
+  const window = trailingWindows(dataset.range.end, days).current;
+  return provenanceOf(dataset.web.filter((row) => inWindow(row.date, window)));
+}
+
+export function commentProvenance(
+  dataset: Dataset,
+  platform?: Platform,
+  days = RANGE_DAYS,
+): DataProvenance {
+  const window = trailingWindows(dataset.range.end, days).current;
+  return provenanceOf(
+    dataset.comments.filter(
+      (item) =>
+        inWindow(item.createdAt.slice(0, 10), window) && (!platform || item.platform === platform),
+    ),
+  );
 }
 
 export function engagementRateOf(item: {
@@ -85,16 +194,10 @@ function emptyMetric() {
   };
 }
 
-function aggregatePlatform(
-  dataset: Dataset,
-  platform: Platform,
-  size: number,
-  offset: number,
-): ReturnType<typeof emptyMetric> {
-  const rows = dataset.social.filter((row) => row.platform === platform);
+function aggregateRows(rows: DailySocialMetric[], window: DateWindow): ReturnType<typeof emptyMetric> {
   const total = emptyMetric();
-  const slice = rows.slice(Math.max(0, rows.length - offset - size), rows.length - offset);
-  for (const row of slice) {
+  for (const row of rows) {
+    if (!inWindow(row.date, window)) continue;
     total.views += row.views;
     total.reach += row.reach;
     total.likes += row.likes;
@@ -110,11 +213,13 @@ function aggregatePlatform(
 
 export function platformAggregates(
   dataset: Dataset,
-  size = RANGE_DAYS,
+  days = RANGE_DAYS,
 ): PlatformAggregate[] {
+  const { current, previous } = trailingWindows(dataset.range.end, days);
   return PLATFORMS.map((platform) => {
-    const now = aggregatePlatform(dataset, platform, size, 0);
-    const prev = aggregatePlatform(dataset, platform, size, size);
+    const rows = dataset.social.filter((row) => row.platform === platform);
+    const now = aggregateRows(rows, current);
+    const prev = aggregateRows(rows, previous);
     return {
       platform,
       views: now.views,
@@ -163,25 +268,7 @@ export function kpiSummary(dataset: Dataset): KpiSummary {
     },
   );
 
-  const sessions = windowSum(
-    dataset.web.map((row) => row.sessions),
-    RANGE_DAYS,
-  );
-  const sessionsPrev = windowSum(
-    dataset.web.map((row) => row.sessions),
-    RANGE_DAYS,
-    RANGE_DAYS,
-  );
-  const conversions = windowSum(
-    dataset.web.map((row) => row.conversions),
-    RANGE_DAYS,
-  );
-  const conversionsPrev = windowSum(
-    dataset.web.map((row) => row.conversions),
-    RANGE_DAYS,
-    RANGE_DAYS,
-  );
-
+  const web = webTotals(dataset);
   const followersNow = sum(dataset.accounts.map((account) => account.followers));
 
   return {
@@ -191,10 +278,10 @@ export function kpiSummary(dataset: Dataset): KpiSummary {
     engagementRatePrev: safeDiv(totals.interactionsPrev, totals.viewsPrev) * 100,
     followers: followersNow,
     followersPrev: followersNow - totals.followersGained,
-    sessions,
-    sessionsPrev,
-    conversions,
-    conversionsPrev,
+    sessions: web.sessions,
+    sessionsPrev: web.sessionsPrev,
+    conversions: web.conversions,
+    conversionsPrev: web.conversionsPrev,
     linkClicks: totals.linkClicks,
     linkClicksPrev: totals.linkClicksPrev,
   };
@@ -204,11 +291,13 @@ export function kpiSummary(dataset: Dataset): KpiSummary {
 /* Deret waktu                                                         */
 /* ------------------------------------------------------------------ */
 
-export function trendPoints(dataset: Dataset, size = RANGE_DAYS): TrendPoint[] {
+export function trendPoints(dataset: Dataset, days = RANGE_DAYS): TrendPoint[] {
+  const window = trailingWindows(dataset.range.end, days).current;
   const dates = dataset.social
-    .filter((row) => row.platform === "instagram")
+    .filter((row) => inWindow(row.date, window))
     .map((row) => row.date)
-    .slice(-size);
+    .filter((date, index, list) => list.indexOf(date) === index)
+    .sort();
   return dates.map((date) => {
     const socialViews = dataset.social
       .filter((row) => row.date === date)
@@ -231,9 +320,12 @@ export function trendPoints(dataset: Dataset, size = RANGE_DAYS): TrendPoint[] {
 export function platformTrendPoints(
   dataset: Dataset,
   platform: Platform,
-  size = RANGE_DAYS,
+  days = RANGE_DAYS,
 ): TrendPoint[] {
-  const rows = dataset.social.filter((row) => row.platform === platform).slice(-size);
+  const window = trailingWindows(dataset.range.end, days).current;
+  const rows = dataset.social.filter(
+    (row) => row.platform === platform && inWindow(row.date, window),
+  );
   return rows.map((row) => {
     const webRow = dataset.web.find((item) => item.date === row.date);
     return {
@@ -373,6 +465,360 @@ export function performanceByTopic(dataset: Dataset, platform?: Platform): Perfo
   );
 }
 
+/**
+ * Bucket durasi konten.
+ *
+ * Batasnya dalam detik; `null` berarti tanpa batas atas. Rentangnya sengaja
+ * disejajarkan dengan definisi Shorts agar hasilnya dapat dibaca langsung
+ * sebagai "video pendek" vs "video panjang".
+ */
+const DURATION_BUCKETS: { key: string; label: string; maxSeconds: number | null }[] = [
+  { key: "0-30", label: "≤ 30 detik", maxSeconds: 30 },
+  { key: "31-60", label: "31–60 detik", maxSeconds: 60 },
+  { key: "61-180", label: "1–3 menit", maxSeconds: 180 },
+  { key: "181+", label: "> 3 menit", maxSeconds: null },
+];
+
+const DURATION_LABEL: Record<string, string> = Object.fromEntries(
+  DURATION_BUCKETS.map((bucket) => [bucket.key, bucket.label]),
+);
+
+function durationBucketOf(seconds: number): string {
+  for (const bucket of DURATION_BUCKETS) {
+    if (bucket.maxSeconds === null || seconds <= bucket.maxSeconds) return bucket.key;
+  }
+  return DURATION_BUCKETS[DURATION_BUCKETS.length - 1].key;
+}
+
+/**
+ * Performa konten per rentang durasi.
+ *
+ * Hanya konten yang durasinya benar-benar dilaporkan platform yang ikut
+ * dihitung; `null` berarti durasi tidak diketahui dan tidak boleh diperlakukan
+ * sebagai nol detik, karena itu akan memasukkan konten bergambar ke bucket
+ * "≤ 30 detik" secara keliru. Berapa banyak yang tersisih dilaporkan
+ * `durationCoverage`.
+ */
+export function performanceByDuration(
+  dataset: Dataset,
+  platform?: Platform,
+): PerformanceBucket[] {
+  const items = windowContent(dataset, platform).filter(
+    (item) => item.durationSeconds !== null,
+  );
+  return bucketize(items, (item) => durationBucketOf(item.durationSeconds as number))
+    .map((bucket) => ({ ...bucket, label: DURATION_LABEL[bucket.key] ?? bucket.key }))
+    .sort((a, b) => b.avgEngagement - a.avgEngagement);
+}
+
+export interface DurationCoverage {
+  withDuration: number;
+  withoutDuration: number;
+  total: number;
+}
+
+/** Berapa banyak konten yang durasinya tersedia, agar angkanya dibaca dengan sadar. */
+export function durationCoverage(dataset: Dataset, platform?: Platform): DurationCoverage {
+  const items = windowContent(dataset, platform);
+  const withDuration = items.filter((item) => item.durationSeconds !== null).length;
+  return { withDuration, withoutDuration: items.length - withDuration, total: items.length };
+}
+
+/* ------------------------------------------------------------------ */
+/* Kesehatan kanal (modul A)                                           */
+/* ------------------------------------------------------------------ */
+
+/** Selisih hari antara dua tanggal ISO (`b - a`). */
+export function daysBetween(a: string, b: string): number {
+  return Math.round(
+    (Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000,
+  );
+}
+
+export interface PostingConsistency {
+  posts: number;
+  /** Jumlah hari unik yang memiliki minimal satu unggahan. */
+  activeDays: number;
+  /** Rentang hari dari unggahan pertama sampai terakhir, inklusif. */
+  spanDays: number;
+  /** Rata-rata jeda antar-unggahan, dalam hari. */
+  avgGapDays: number;
+  /** Jeda terpanjang tanpa unggahan, dalam hari. */
+  longestGapDays: number;
+  /** Tanggal unggahan sebelum jeda terpanjang; `null` bila tidak ada jeda. */
+  longestGapStart: string | null;
+  /** Persentase hari dalam rentang konten yang memiliki unggahan, 0-100. */
+  consistencyRate: number;
+}
+
+/**
+ * Konsistensi posting, dihitung dari tanggal publikasi yang sebenarnya.
+ *
+ * Jeda diukur antar tanggal unggahan yang berbeda, bukan dari posisi baris di
+ * dalam tabel, sehingga menyalin ulang dataset tidak mengubah hasilnya.
+ */
+export function postingConsistency(
+  dataset: Dataset,
+  platform?: Platform,
+): PostingConsistency {
+  const items = windowContent(dataset, platform);
+  const dates = [...new Set(items.map((item) => item.publishedAt.slice(0, 10)))].sort();
+  if (dates.length === 0) {
+    return {
+      posts: 0,
+      activeDays: 0,
+      spanDays: 0,
+      avgGapDays: 0,
+      longestGapDays: 0,
+      longestGapStart: null,
+      consistencyRate: 0,
+    };
+  }
+
+  let longestGapDays = 0;
+  let longestGapStart: string | null = null;
+  for (let i = 1; i < dates.length; i += 1) {
+    const gap = daysBetween(dates[i - 1], dates[i]);
+    if (gap > longestGapDays) {
+      longestGapDays = gap;
+      longestGapStart = dates[i - 1];
+    }
+  }
+
+  const spanDays = daysBetween(dates[0], dates[dates.length - 1]) + 1;
+  return {
+    posts: items.length,
+    activeDays: dates.length,
+    spanDays,
+    avgGapDays: dates.length > 1 ? daysBetween(dates[0], dates[dates.length - 1]) / (dates.length - 1) : 0,
+    longestGapDays,
+    longestGapStart,
+    consistencyRate: safeDiv(dates.length, spanDays) * 100,
+  };
+}
+
+/** Bobot komponen skor kesehatan kanal. Jumlahnya 1. */
+export const HEALTH_WEIGHTS = { growth: 0.4, consistency: 0.35, engagement: 0.25 } as const;
+
+/** Rasio interaksi yang dianggap sehat; dipakai sebagai acuan skor komponen. */
+export const HEALTH_ENGAGEMENT_BENCHMARK = 5;
+
+/** Perubahan pengikut (%) yang memetakan skor komponen ke 0 atau 100. */
+export const HEALTH_GROWTH_BOUND = 20;
+
+export type HealthBand = "sangat-baik" | "baik" | "cukup" | "perlu-perhatian";
+
+export const HEALTH_BAND_LABEL: Record<HealthBand, string> = {
+  "sangat-baik": "Sangat baik",
+  baik: "Baik",
+  cukup: "Cukup",
+  "perlu-perhatian": "Perlu perhatian",
+};
+
+export interface HealthComponent {
+  key: "growth" | "consistency" | "engagement";
+  label: string;
+  /** Skor komponen 0-100; `null` bila datanya belum ada. */
+  score: number | null;
+  weight: number;
+  detail: string;
+}
+
+export interface ChannelHealthScore {
+  platform: Platform;
+  /** Skor gabungan 0-100 dari komponen yang datanya tersedia. */
+  score: number;
+  band: HealthBand;
+  components: HealthComponent[];
+  /** Jumlah bobot yang benar-benar terpakai; 0 berarti belum ada data apa pun. */
+  weightUsed: number;
+}
+
+function clampToScore(value: number): number {
+  return Math.max(0, Math.min(100, value));
+}
+
+export function healthBand(score: number): HealthBand {
+  if (score >= 80) return "sangat-baik";
+  if (score >= 65) return "baik";
+  if (score >= 50) return "cukup";
+  return "perlu-perhatian";
+}
+
+/**
+ * Skor kesehatan kanal: gabungan pertumbuhan, konsistensi, dan interaksi.
+ *
+ * Ketiga komponen dipetakan ke skala 0-100 lebih dulu, lalu dirata-ratakan
+ * menurut bobotnya. Komponen yang datanya belum ada dikeluarkan dari
+ * perhitungan — bobotnya tidak digantikan nilai netral, supaya kanal yang
+ * datanya sedikit tidak tampak lebih sehat daripada kenyataannya. Metode ini
+ * ditampilkan di UI lewat `components` agar angkanya dapat diperiksa.
+ */
+export function channelHealthScore(dataset: Dataset, platform: Platform): ChannelHealthScore {
+  const window = trailingWindows(dataset.range.end, RANGE_DAYS).current;
+  const hasMetrics = dataset.social.some(
+    (row) => row.platform === platform && inWindow(row.date, window),
+  );
+  const aggregate = platformAggregates(dataset).find((row) => row.platform === platform);
+  const consistency = postingConsistency(dataset, platform);
+
+  const growthChange =
+    aggregate && (aggregate.followersGained !== 0 || aggregate.followersGainedPrev !== 0)
+      ? pctChange(aggregate.followersGained, aggregate.followersGainedPrev)
+      : 0;
+  const growthScore =
+    aggregate && hasMetrics && (aggregate.followersGained !== 0 || aggregate.followersGainedPrev !== 0)
+      ? clampToScore(50 + growthChange * (50 / HEALTH_GROWTH_BOUND))
+      : null;
+
+  const consistencyScore = consistency.posts === 0 ? null : consistency.consistencyRate;
+
+  const engagementScore =
+    aggregate && hasMetrics
+      ? clampToScore(safeDiv(aggregate.engagementRate, HEALTH_ENGAGEMENT_BENCHMARK) * 100)
+      : null;
+
+  const components: HealthComponent[] = [
+    {
+      key: "growth",
+      label: "Pertumbuhan pengikut",
+      score: growthScore,
+      weight: HEALTH_WEIGHTS.growth,
+      detail: hasMetrics
+        ? `Pengikut baru ${growthChange.toFixed(1)}% terhadap periode pembanding.`
+        : "Belum ada metrik kanal yang tersinkron.",
+    },
+    {
+      key: "consistency",
+      label: "Konsistensi posting",
+      score: consistencyScore,
+      weight: HEALTH_WEIGHTS.consistency,
+      detail:
+        consistency.posts === 0
+          ? "Belum ada konten pada periode ini."
+          : `${consistency.activeDays} hari berisi unggahan dari ${consistency.spanDays} hari rentang konten.`,
+    },
+    {
+      key: "engagement",
+      label: "Rasio interaksi",
+      score: engagementScore,
+      weight: HEALTH_WEIGHTS.engagement,
+      detail: hasMetrics && aggregate
+        ? `Rasio interaksi ${aggregate.engagementRate.toFixed(2)}%; acuan sehat ${HEALTH_ENGAGEMENT_BENCHMARK}%.`
+        : "Belum ada metrik kanal yang tersinkron.",
+    },
+  ];
+
+  const available = components.filter((item) => item.score !== null);
+  const weightUsed = available.reduce((total, item) => total + item.weight, 0);
+  const score =
+    weightUsed === 0
+      ? 0
+      : available.reduce((total, item) => total + (item.score as number) * item.weight, 0) / weightUsed;
+
+  return { platform, score, band: healthBand(score), components, weightUsed };
+}
+
+/** Skor kesehatan seluruh kanal, terurut dari yang paling rendah. */
+export function channelHealthScores(dataset: Dataset): ChannelHealthScore[] {
+  return PLATFORMS.map((platform) => channelHealthScore(dataset, platform)).sort(
+    (a, b) => a.score - b.score,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Demografi audiens (modul B)                                         */
+/* ------------------------------------------------------------------ */
+
+export const AUDIENCE_DIMENSION_LABEL: Record<AudienceDimension, string> = {
+  age: "Kelompok usia",
+  gender: "Jenis kelamin",
+  country: "Negara",
+  city: "Kota",
+};
+
+export interface AudienceBucket {
+  bucket: string;
+  value: number;
+  share: number;
+}
+
+export interface AudienceDimensionSummary {
+  dimension: AudienceDimension;
+  label: string;
+  total: number;
+  buckets: AudienceBucket[];
+  sourceKind: DataProvenance;
+}
+
+export interface AudienceSummary {
+  /** Akun yang dianalisis; `null` berarti seluruh akun yang datanya tersedia. */
+  accountId: string | null;
+  /** `false` berarti tidak ada satu pun dimensi yang tersedia dari API. */
+  available: boolean;
+  dimensions: AudienceDimensionSummary[];
+}
+
+/**
+ * Baris demografi yang boleh ikut dihitung.
+ *
+ * Demografi hasil API disimpan pada periode `lifetime`, sedangkan data
+ * ilustratif disimpan pada periode contoh — keduanya bisa hidup berdampingan
+ * untuk akun yang sama. Menjumlahkannya akan menggandakan angka yang tampak
+ * berasal dari satu sumber. Karena itu, untuk setiap pasangan akun dan dimensi,
+ * baris `platform-api` menang: begitu ada demografi nyata, baris ilustratif pada
+ * dimensi yang sama tidak lagi ditampilkan. Prioritasnya per dimensi, bukan per
+ * akun, supaya dimensi yang belum pernah diambil API tetap menampilkan apa
+ * adanya — dan itu dilaporkan sebagai `mixed` oleh `provenanceOf`.
+ */
+function audienceRowsFor(dataset: Dataset, accountId?: string): AudienceInsight[] {
+  const rows = accountId
+    ? dataset.audience.filter((row) => row.accountId === accountId)
+    : dataset.audience;
+  const apiKeys = new Set(
+    rows
+      .filter((row) => row.sourceKind === "platform-api")
+      .map((row) => `${row.accountId}:${row.dimension}`),
+  );
+  return rows.filter(
+    (row) => row.sourceKind === "platform-api" || !apiKeys.has(`${row.accountId}:${row.dimension}`),
+  );
+}
+
+/**
+ * Ringkasan demografi audiens dari data yang benar-benar dilaporkan platform.
+ *
+ * Bila `dataset.audience` kosong, hasilnya `available: false` dengan daftar
+ * dimensi kosong — UI wajib menampilkan "belum tersedia" dan dilarang mengisi
+ * angka apa pun, karena jam aktif audiens dan retensi tidak disediakan API
+ * untuk semua platform.
+ */
+export function audienceSummary(dataset: Dataset, accountId?: string): AudienceSummary {
+  const rows = audienceRowsFor(dataset, accountId);
+
+  const dimensions = (Object.keys(AUDIENCE_DIMENSION_LABEL) as AudienceDimension[])
+    .map((dimension) => {
+      const group = rows.filter((row) => row.dimension === dimension);
+      const total = sum(group.map((row) => row.value));
+      return {
+        dimension,
+        label: AUDIENCE_DIMENSION_LABEL[dimension],
+        total,
+        buckets: group
+          .map((row) => ({
+            bucket: row.bucket,
+            value: row.value,
+            share: safeDiv(row.value, total) * 100,
+          }))
+          .sort((a, b) => b.value - a.value),
+        sourceKind: provenanceOf(group),
+      };
+    })
+    .filter((item) => item.buckets.length > 0);
+
+  return { accountId: accountId ?? null, available: dimensions.length > 0, dimensions };
+}
+
 /* ------------------------------------------------------------------ */
 /* Analisis komentar                                                   */
 /* ------------------------------------------------------------------ */
@@ -421,15 +867,10 @@ function sentimentShares(items: CommentItem[]) {
 }
 
 export function commentAnalysis(dataset: Dataset): CommentAnalysis {
-  const items = dataset.comments.filter(
-    (item) => item.createdAt.slice(0, 10) >= dataset.range.start,
-  );
-  const prevStart = dataset.social[dataset.social.length - RANGE_DAYS * 2]?.date ?? dataset.history.start;
-  const prevItems = dataset.comments.filter(
-    (item) =>
-      item.createdAt.slice(0, 10) >= prevStart &&
-      item.createdAt.slice(0, 10) < dataset.range.start,
-  );
+  const { current, previous } = trailingWindows(dataset.range.end, RANGE_DAYS);
+  const createdOn = (item: CommentItem) => item.createdAt.slice(0, 10);
+  const items = dataset.comments.filter((item) => inWindow(createdOn(item), current));
+  const prevItems = dataset.comments.filter((item) => inWindow(createdOn(item), previous));
 
   const sentiments = (["positive", "neutral", "negative"] as Sentiment[]).map((key) => {
     const count = items.filter((item) => item.sentiment === key).length;
@@ -458,15 +899,13 @@ export function commentAnalysis(dataset: Dataset): CommentAnalysis {
     .sort((a, b) => b.count - a.count);
 
   const buckets = [3, 2, 1, 0].map((weeksAgo) => {
-    const end = dataset.social.length - weeksAgo * WINDOW;
-    const start = end - WINDOW;
-    const dates = dataset.social
-      .slice(start, end)
-      .map((row) => row.date)
-      .filter((date, index, list) => list.indexOf(date) === index);
-    const group = dataset.comments.filter((item) => dates.includes(item.createdAt.slice(0, 10)));
-    const label =
-      weeksAgo === 0 ? "Minggu ini" : `Minggu −${weeksAgo}`;
+    const windowEnd = shiftDate(dataset.range.end, -weeksAgo * WINDOW);
+    const windowStart = shiftDate(windowEnd, -(WINDOW - 1));
+    const group = dataset.comments.filter((item) => {
+      const date = item.createdAt.slice(0, 10);
+      return date >= windowStart && date <= windowEnd;
+    });
+    const label = weeksAgo === 0 ? "Minggu ini" : `Minggu −${weeksAgo}`;
     return {
       label,
       positive: group.filter((item) => item.sentiment === "positive").length,
@@ -518,9 +957,16 @@ export interface WebTotals {
   conversionRatePrev: number;
 }
 
-export function webTotals(dataset: Dataset): WebTotals {
-  const rows = dataset.web.slice(-RANGE_DAYS);
-  const prevRows = dataset.web.slice(-RANGE_DAYS * 2, -RANGE_DAYS);
+/**
+ * Total metrik website pada `days` hari terakhir beserta jendela pembandingnya.
+ *
+ * Jendelanya ditetapkan lewat tanggal, jadi jumlah baris yang tersimpan di D1
+ * tidak ikut menentukan periode yang dihitung.
+ */
+export function webTotals(dataset: Dataset, days = RANGE_DAYS): WebTotals {
+  const { current, previous } = trailingWindows(dataset.range.end, days);
+  const rows = dataset.web.filter((row) => inWindow(row.date, current));
+  const prevRows = dataset.web.filter((row) => inWindow(row.date, previous));
   const conversions = sum(rows.map((row) => row.conversions));
   const conversionsPrev = sum(prevRows.map((row) => row.conversions));
   const sessions = sum(rows.map((row) => row.sessions));

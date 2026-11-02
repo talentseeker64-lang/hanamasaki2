@@ -19,7 +19,14 @@ import {
   formatPercent,
 } from "@/lib/format";
 import type { TrafficChannel } from "@/lib/types";
-import { conversionFunnel, pctChange, webTotals } from "@/lib/metrics";
+import {
+  conversionFunnel,
+  inWindow,
+  pctChange,
+  trailingWindows,
+  webProvenance,
+  webTotals,
+} from "@/lib/metrics";
 
 const CHANNEL_LABEL: Record<TrafficChannel, string> = {
   organic: "Pencarian organik",
@@ -44,12 +51,26 @@ async function WebsiteContent() {
   const funnel = conversionFunnel(dataset);
   const copilot = answerCopilot(COPILOT_SUGGESTIONS[0], dataset);
 
-  const recentWeb = dataset.web.slice(-dataset.range.days);
+  // Jendela tren mengikuti rentang tanggal dataset, bukan jumlah baris terakhir.
+  const window = trailingWindows(dataset.range.end, dataset.range.days).current;
+  const recentWeb = dataset.web.filter((row) => inWindow(row.date, window));
   const points = recentWeb.map((row) => ({
     label: row.date.slice(5),
     primary: row.sessions,
     secondary: row.conversions,
   }));
+
+  const provenance = webProvenance(dataset);
+
+  // Halaman dengan konversi 7 hari yang paling melemah, dipilih dari data
+  // (bukan path tetap) agar catatan tetap berlaku untuk properti apa pun.
+  const weakPage = [...dataset.pages]
+    .filter((page) => page.conversions7Prev > 0)
+    .sort(
+      (a, b) =>
+        pctChange(a.conversions7, a.conversions7Prev) - pctChange(b.conversions7, b.conversions7Prev),
+    )[0];
+  const pageDropped = weakPage !== undefined && weakPage.conversions7 < weakPage.conversions7Prev;
 
   const sources = [...dataset.sources].sort((a, b) => b.sessions - a.sessions);
   const pages = [...dataset.pages].sort((a, b) => b.views30 - a.views30);
@@ -68,22 +89,26 @@ async function WebsiteContent() {
           value={formatNumber(totals.sessions)}
           change={pctChange(totals.sessions, totals.sessionsPrev)}
           hint={`${formatNumber(totals.users)} pengguna · ${formatNumber(totals.newUsers)} pengguna baru`}
+          provenance={provenance}
         />
         <KpiCard
           label="Tampilan halaman"
           value={formatNumber(totals.pageViews)}
           hint={`Rata-rata ${(totals.pageViews / Math.max(1, totals.sessions)).toFixed(2)} halaman per sesi`}
+          provenance={provenance}
         />
         <KpiCard
           label="Konversi"
           value={formatNumber(totals.conversions)}
           change={pctChange(totals.conversions, totals.conversionsPrev)}
           hint={`Tingkat konversi ${formatPercent(totals.conversionRate)} (sebelumnya ${formatPercent(totals.conversionRatePrev)})`}
+          provenance={provenance}
         />
         <KpiCard
           label="Rasio pentalan"
           value={formatPercent(totals.bounceRate)}
           hint={`Rata-rata durasi sesi ${formatDuration(totals.avgSessionSeconds)}`}
+          provenance={provenance}
         />
       </div>
 
@@ -219,9 +244,9 @@ async function WebsiteContent() {
         </div>
         <div className="border-t border-slate-100 px-5 py-4">
           <DataNotice>
-            Halaman <span className="font-medium text-slate-600">/promo-oktober</span> menerima
-            cukup banyak kunjungan tetapi konversinya melemah, sejalan dengan temuan pada halaman
-            AI Insights.
+            {pageDropped
+              ? `Halaman ${weakPage.path} menerima cukup banyak kunjungan tetapi konversi 7 harinya melemah (dari ${formatNumber(weakPage.conversions7Prev)} menjadi ${formatNumber(weakPage.conversions7)}), sejalan dengan temuan pada halaman AI Insights.`
+              : "Tidak ada halaman dengan penurunan konversi 7 hari yang mencolok pada periode ini."}
           </DataNotice>
         </div>
       </Card>

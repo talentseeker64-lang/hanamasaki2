@@ -211,9 +211,6 @@ export default function AppShell({
             <span className="size-1.5 rounded-full bg-emerald-500" />
             Tersinkron {syncLabel}
           </span>
-          <span className="hidden rounded-full bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-100 md:inline-flex">
-            Data ilustratif
-          </span>
         </header>
         <main className="mx-auto w-full max-w-[1200px] flex-1 px-4 py-6 lg:px-8">{children}</main>
       </div>
@@ -241,8 +238,9 @@ function SidebarFooter({ syncLabel }: { syncLabel: React.ReactNode }) {
   return (
     <div className="border-t border-slate-100 px-5 py-4">
       <p className="text-[11px] leading-relaxed text-slate-400">
-        Semua angka pada versi ini berasal dari dataset ilustratif yang dibangkitkan secara
-        deterministik. Terakhir disinkronkan {syncLabel}.
+        Asal setiap angka ditandai sendiri di kartu dan barisnya — “Sinkron API” berarti data
+        platform nyata, “Ilustratif” berarti data contoh, dan “Asal tak diketahui” berarti asalnya
+        tidak dapat dibuktikan. Terakhir disinkronkan {syncLabel}.
       </p>
     </div>
   );

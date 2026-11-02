@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useAdminToken } from "@/components/form";
 import { Card, CardHeader, DataNotice } from "@/components/ui";
+import { ADMIN_TOKEN_HEADER } from "@/lib/admin-client";
 import { formatDateShort, formatNumber } from "@/lib/format";
 
 interface Video {
@@ -19,6 +21,7 @@ interface Video {
 interface ApiPayload {
   ok?: boolean;
   message?: string;
+  error?: string;
   fetchedAt?: string;
   videos?: Video[];
 }
@@ -54,6 +57,7 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
  * bila akun belum terhubung — bukan angka contoh yang terlihat seperti nyata.
  */
 export default function YouTubeVideoList() {
+  const [token] = useAdminToken();
   const [state, setState] = useState<ViewState>({ status: "loading" });
   const [filter, setFilter] = useState<Filter>("all");
 
@@ -61,8 +65,19 @@ export default function YouTubeVideoList() {
     let cancelled = false;
 
     (async () => {
+      if (!token) {
+        setState({
+          status: "notice",
+          message:
+            "Token admin belum diisi di menu Settings. Endpoint baca hanya melayani permintaan bertoken.",
+        });
+        return;
+      }
+
       try {
-        const response = await fetch("/api/youtube/videos");
+        const response = await fetch("/api/youtube/videos", {
+          headers: { [ADMIN_TOKEN_HEADER]: token },
+        });
         const payload = (await response.json().catch(() => null)) as ApiPayload | null;
         if (cancelled) return;
 
@@ -73,7 +88,10 @@ export default function YouTubeVideoList() {
         if (!payload.ok) {
           setState({
             status: "notice",
-            message: payload.message ?? "Data video belum dapat diambil.",
+            message:
+              payload.message ??
+              payload.error ??
+              `Data video belum dapat diambil (HTTP ${response.status}).`,
           });
           return;
         }
@@ -92,7 +110,7 @@ export default function YouTubeVideoList() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [token]);
 
   const videos = state.status === "ready" ? state.videos : [];
   const counts = {

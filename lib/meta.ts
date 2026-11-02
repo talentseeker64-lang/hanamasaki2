@@ -1,4 +1,5 @@
 import { getEnv } from "./db";
+import type { AudienceDimension, AudiencePoint } from "./types";
 
 /**
  * Klien tipis untuk Meta Graph API.
@@ -32,9 +33,17 @@ export const META_STATE_COOKIE = "peakalpha.meta.oauth";
 
 /** Kesalahan dari sisi Meta atau konfigurasi yang aman ditampilkan ke admin. */
 export class MetaApiError extends Error {
-  constructor(message: string) {
+  /**
+   * Kode HTTP respons Meta, atau `null` bila kegagalannya bukan dari respons
+   * (mis. konfigurasi belum diatur). Dipakai `lib/retry.ts` untuk membedakan
+   * kegagalan sementara (429, 5xx) dari kegagalan permanen.
+   */
+  readonly status: number | null;
+
+  constructor(message: string, status: number | null = null) {
     super(message);
     this.name = "MetaApiError";
+    this.status = status;
   }
 }
 
@@ -100,7 +109,7 @@ export function buildAuthorizeUrl(
 async function readGraph(response: Response): Promise<Record<string, unknown>> {
   const payload = (await response.json().catch(() => null)) as Record<string, unknown> | null;
   if (payload === null) {
-    throw new MetaApiError(`Respons Meta tidak dapat dibaca (HTTP ${response.status}).`);
+    throw new MetaApiError(`Respons Meta tidak dapat dibaca (HTTP ${response.status}).`, response.status);
   }
   const error = payload.error;
   if (!response.ok || typeof error === "object") {
@@ -108,7 +117,7 @@ async function readGraph(response: Response): Promise<Record<string, unknown>> {
       typeof error === "object" && error !== null && typeof (error as { message?: unknown }).message === "string"
         ? (error as { message: string }).message
         : `Meta menolak permintaan (HTTP ${response.status}).`;
-    throw new MetaApiError(`Meta menolak permintaan: ${message}`);
+    throw new MetaApiError(`Meta menolak permintaan: ${message}`, response.status);
   }
   return payload;
 }
@@ -351,4 +360,184 @@ export async function findFirstPage(
     pageName: typeof page.name === "string" ? page.name : "",
     pageToken: typeof page.access_token === "string" ? page.access_token : accessToken,
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Demografi audiens                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Demografi pengikut Instagram.
+ *
+ * Meta menyalurkannya lewat satu metrik (`follower_demographics`) yang harus
+ * diminta satu dimensi per panggilan; `breakdown` tidak menerima daftar. Karena
+ * itu tiap dimensi diambil terpisah dan kegagalan satu dimensi (mis. `country`
+ * belum tersedia untuk akun tertentu) tidak membatalkan yang lain.
+ *
+ * Dimensi `city` sengaja tidak diminta: untuk Instagram, Meta mengembalikan
+ * *city ID* berupa angka, bukan nama kota. Menyimpannya hanya akan menghasilkan
+ * bucket yang tidak dapat dibaca siapa pun, dan menerjemahkannya sendiri berarti
+ * menebak. Halaman Facebook tetap punya dimensi kota karena metriknya memang
+ * mengirim nama kota.
+ *
+ * Mengembalikan `null` bila tidak satu pun dimensi berhasil — itu berarti Meta
+ * memang tidak menyediakannya untuk token ini, bukan kegagalan sinkronisasi.
+ */
+export async function fetchInstagramDemographics(
+  igUserId: string,
+  accessToken: string,
+): Promise<AudiencePoint[] | null> {
+  const dimensions: AudienceDimension[] = ["age", "gender", "country"];
+  const results = await Promise.all(
+    dimensions.map((dimension) => fetchInstagramDemographic(igUserId, accessToken, dimension)),
+  );
+  const points = results.flat();
+  return points.length === 0 ? null : points;
+}
+
+async function fetchInstagramDemographic(
+  igUserId: string,
+  accessToken: string,
+  dimension: AudienceDimension,
+): Promise<AudiencePoint[]> {
+  const url = new URL(`${GRAPH_BASE}/${encodeURIComponent(igUserId)}/insights`);
+  url.searchParams.set("metric", "follower_demographics");
+  url.searchParams.set("period", "lifetime");
+  // Metrik ini hanya mengembalikan total dalam bentuk `total_value`, bukan deret waktu.
+  url.searchParams.set("metric_type", "total_value");
+  url.searchParams.set("breakdown", dimension);
+  url.searchParams.set("access_token", accessToken);
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = await readGraph(await fetch(url));
+  } catch {
+    return [];
+  }
+
+  const data = Array.isArray(payload.data) ? payload.data : [];
+  const first = data[0];
+  if (typeof first !== "object" || first === null) return [];
+
+  const totalValue = ((first as Record<string, unknown>).total_value ?? {}) as Record<string, unknown>;
+  const breakdowns = Array.isArray(totalValue.breakdowns) ? totalValue.breakdowns : [];
+
+  const points: AudiencePoint[] = [];
+  for (const entry of breakdowns) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const results = (entry as Record<string, unknown>).results;
+    if (!Array.isArray(results)) continue;
+    for (const result of results) {
+      if (typeof result !== "object" || result === null) continue;
+      const record = result as Record<string, unknown>;
+      const values = Array.isArray(record.dimension_values) ? record.dimension_values : [];
+      const bucket = typeof values[0] === "string" ? values[0] : "";
+      const value = toNumber(record.value);
+      if (bucket === "" || value === null) continue;
+      points.push({ dimension, bucket, value });
+    }
+  }
+  return points;
+}
+
+/** Metrik demografi Halaman Facebook beserta dimensi yang diwakilinya. */
+const PAGE_DEMOGRAPHIC_METRICS = ["page_fans_gender_age", "page_fans_country", "page_fans_city"] as const;
+
+/**
+ * Demografi pengikut Halaman Facebook.
+ *
+ * Berbeda dari Instagram, Meta mengirim ketiganya dalam satu panggilan sebagai
+ * peta `label -> jumlah`. `page_fans_gender_age` menggabungkan dua dimensi dalam
+ * satu label (`F.25-34`), jadi hasilnya dipecah menjadi dimensi `gender` dan
+ * `age` secara terpisah dengan menjumlahkan sisi lainnya.
+ *
+ * Mengembalikan `null` bila Meta menolak — sama seperti Instagram, itu berarti
+ * datanya tidak tersedia untuk token ini.
+ */
+export async function fetchPageDemographics(
+  pageId: string,
+  accessToken: string,
+): Promise<AudiencePoint[] | null> {
+  const url = new URL(`${GRAPH_BASE}/${encodeURIComponent(pageId)}/insights`);
+  url.searchParams.set("metric", PAGE_DEMOGRAPHIC_METRICS.join(","));
+  url.searchParams.set("period", "lifetime");
+  url.searchParams.set("access_token", accessToken);
+
+  let payload: Record<string, unknown>;
+  try {
+    payload = await readGraph(await fetch(url));
+  } catch {
+    return null;
+  }
+
+  const series = Array.isArray(payload.data) ? payload.data : [];
+  const points: AudiencePoint[] = [];
+
+  for (const entry of series) {
+    if (typeof entry !== "object" || entry === null) continue;
+    const metric = entry as Record<string, unknown>;
+    const values = Array.isArray(metric.values) ? metric.values : [];
+    const last = values[values.length - 1];
+    const value =
+      typeof last === "object" && last !== null
+        ? (last as Record<string, unknown>).value
+        : null;
+    if (typeof value !== "object" || value === null) continue;
+
+    if (metric.name === "page_fans_gender_age") {
+      points.push(...splitGenderAge(value as Record<string, unknown>));
+    } else if (metric.name === "page_fans_country") {
+      points.push(...toPoints("country", value as Record<string, unknown>));
+    } else if (metric.name === "page_fans_city") {
+      points.push(...toPoints("city", value as Record<string, unknown>));
+    }
+  }
+
+  return points.length === 0 ? null : points;
+}
+
+/** Memecah peta `F.25-34 -> jumlah` menjadi dimensi gender dan age. */
+function splitGenderAge(map: Record<string, unknown>): AudiencePoint[] {
+  const byGender = new Map<string, number>();
+  const byAge = new Map<string, number>();
+
+  for (const [key, raw] of Object.entries(map)) {
+    const value = toNumber(raw);
+    if (value === null) continue;
+    const separator = key.indexOf(".");
+    if (separator <= 0) continue;
+    const gender = key.slice(0, separator);
+    const age = key.slice(separator + 1);
+    if (age === "") continue;
+    byGender.set(gender, (byGender.get(gender) ?? 0) + value);
+    byAge.set(age, (byAge.get(age) ?? 0) + value);
+  }
+
+  return [
+    ...[...byGender].map(([bucket, value]) => ({ dimension: "gender" as const, bucket, value })),
+    ...[...byAge].map(([bucket, value]) => ({ dimension: "age" as const, bucket, value })),
+  ];
+}
+
+function toPoints(
+  dimension: AudienceDimension,
+  map: Record<string, unknown>,
+): AudiencePoint[] {
+  const points: AudiencePoint[] = [];
+  for (const [bucket, raw] of Object.entries(map)) {
+    const value = toNumber(raw);
+    if (bucket === "" || value === null) continue;
+    points.push({ dimension, bucket, value });
+  }
+  return points;
+}
+
+/** Meta mengirim angka demografi sebagai angka maupun string. */
+function toNumber(value: unknown): number | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
 }

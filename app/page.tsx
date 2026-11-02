@@ -27,7 +27,9 @@ import {
   kpiSummary,
   pctChange,
   platformAggregates,
+  socialProvenance,
   trendPoints,
+  webProvenance,
 } from "@/lib/metrics";
 
 const SENTIMENT_COLOR = { positive: "#10b981", neutral: "#94a3b8", negative: "#f43f5e" };
@@ -50,6 +52,10 @@ async function OverviewContent() {
   const funnel = conversionFunnel(dataset);
   const copilot = answerCopilot(COPILOT_SUGGESTIONS[0], dataset);
 
+  // Asal angka ditandai per metrik: sosial dan website bisa berbeda sumbernya.
+  const socialProv = socialProvenance(dataset);
+  const webProv = webProvenance(dataset);
+
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
@@ -64,6 +70,7 @@ async function OverviewContent() {
           value={formatCompact(kpi.totalViews)}
           change={pctChange(kpi.totalViews, kpi.totalViewsPrev)}
           hint={`${formatNumber(kpi.totalViews)} tayangan dari 4 kanal sosial`}
+          provenance={socialProv}
         />
         <KpiCard
           label="Rasio interaksi"
@@ -71,18 +78,21 @@ async function OverviewContent() {
           change={kpi.engagementRate - kpi.engagementRatePrev}
           asPoints
           hint="(suka + komentar + bagikan + simpan) ÷ tayangan"
+          provenance={socialProv}
         />
         <KpiCard
           label="Pengunjung website"
           value={formatNumber(kpi.sessions)}
           change={pctChange(kpi.sessions, kpi.sessionsPrev)}
           hint={`${formatNumber(kpi.sessions)} sesi, termasuk ${formatCompact(kpi.linkClicks)} klik dari sosial`}
+          provenance={webProv}
         />
         <KpiCard
           label="Konversi"
           value={formatNumber(kpi.conversions)}
           change={pctChange(kpi.conversions, kpi.conversionsPrev)}
           hint={`Tingkat konversi ${formatPercent((kpi.conversions / Math.max(1, kpi.sessions)) * 100)}`}
+          provenance={webProv}
         />
       </div>
 

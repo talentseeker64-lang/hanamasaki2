@@ -13,6 +13,7 @@ import {
   bestLag,
   commentAnalysis,
   engagementRateOf,
+  inWindow,
   kpiSummary,
   pctChange,
   performanceByFormat,
@@ -23,10 +24,10 @@ import {
   safeDiv,
   sum,
   topContent,
+  trailingWindows,
   trendPoints,
   webTotals,
   windowContent,
-  windowSum,
 } from "./metrics";
 import type {
   CopilotAnswer,
@@ -92,22 +93,30 @@ export interface Anomaly {
 export function detectAnomalies(dataset: Dataset): Anomaly[] {
   const anomalies: Anomaly[] = [];
 
+  // Baseline = jendela tepat sebelum periode berjalan. Batas berbasis tanggal,
+  // bukan posisi baris, agar kanal yang datanya belum lengkap tidak menggeser
+  // pembanding.
+  const { current, previous } = trailingWindows(dataset.range.end, RANGE_DAYS);
+
   const dailySocial = new Map<string, number>();
   for (const row of dataset.social) {
+    if (row.date < previous.start || row.date > current.end) continue;
     dailySocial.set(row.date, (dailySocial.get(row.date) ?? 0) + row.views);
   }
   const socialSeries = [...dailySocial.entries()].sort((a, b) => a[0].localeCompare(b[0]));
   const baselineSocial = socialSeries
-    .slice(-RANGE_DAYS * 2, -RANGE_DAYS)
+    .filter(([date]) => date < current.start)
     .map((entry) => entry[1]);
   const socialMean = mean(baselineSocial);
   const socialSd = stdDev(baselineSocial);
 
-  const webBaseline = dataset.web.slice(-RANGE_DAYS * 2, -RANGE_DAYS).map((row) => row.sessions);
+  const webBaseline = dataset.web
+    .filter((row) => inWindow(row.date, previous))
+    .map((row) => row.sessions);
   const webMean = mean(webBaseline);
   const webSd = stdDev(webBaseline);
 
-  for (const [date, value] of socialSeries.slice(-RANGE_DAYS)) {
+  for (const [date, value] of socialSeries.filter(([date]) => date >= current.start)) {
     if (socialSd === 0) break;
     const zScore = (value - socialMean) / socialSd;
     if (Math.abs(zScore) >= 2) {
@@ -124,7 +133,7 @@ export function detectAnomalies(dataset: Dataset): Anomaly[] {
     }
   }
 
-  for (const row of dataset.web.slice(-RANGE_DAYS)) {
+  for (const row of dataset.web.filter((entry) => inWindow(entry.date, current))) {
     if (webSd === 0) break;
     const zScore = (row.sessions - webMean) / webSd;
     if (Math.abs(zScore) >= 2) {
@@ -145,7 +154,7 @@ export function detectAnomalies(dataset: Dataset): Anomaly[] {
 }
 
 /* ------------------------------------------------------------------ */
-/* Diagnosis utama: kenapa trafik website turun padahal views naik      */
+/* Diagnosis utama: kenapa trafik website tidak sejalan dengan views   */
 /* ------------------------------------------------------------------ */
 
 export interface TrafficDiagnosis {
@@ -157,6 +166,14 @@ export interface TrafficDiagnosis {
   dataPoints: string[];
 }
 
+/**
+ * Diagnosis selisih antara perhatian di kanal sosial dan trafik website.
+ *
+ * Seluruh kanal, sumber trafik, halaman, dan kata kunci dipilih dari data yang
+ * ada — tidak ada kanal atau path yang ditetapkan lebih dulu. Selama dataset
+ * memuat setidaknya satu kanal, diagnosis tetap menghasilkan penjelasan yang
+ * masuk akal untuk rentang tanggal apa pun.
+ */
 export function diagnoseTrafficGap(dataset: Dataset): TrafficDiagnosis {
   const recent = platformAggregates(dataset, WINDOW);
   const viewsNow = sum(recent.map((row) => row.views));
@@ -164,19 +181,9 @@ export function diagnoseTrafficGap(dataset: Dataset): TrafficDiagnosis {
   const clicksNow = sum(recent.map((row) => row.linkClicks));
   const clicksPrev = sum(recent.map((row) => row.linkClicksPrev));
 
-  const sessionsNow = windowSum(
-    dataset.web.map((row) => row.sessions),
-    WINDOW,
-  );
-  const sessionsPrev = windowSum(
-    dataset.web.map((row) => row.sessions),
-    WINDOW,
-    WINDOW,
-  );
+  const sessionsNow = webTotals(dataset, WINDOW).sessions;
+  const sessionsPrev = webTotals(dataset, WINDOW).sessionsPrev;
 
-  const instagram = recent.find((row) => row.platform === "instagram");
-  const organic = dataset.sources.find((row) => row.channel === "organic");
-  const promoPage = dataset.pages.find((page) => page.path === "/promo-oktober");
   const totals = webTotals(dataset);
   const socialSources = dataset.sources.filter((row) => row.channel === "social");
   const socialSessionsNow = sum(socialSources.map((row) => row.sessions));
@@ -198,74 +205,111 @@ export function diagnoseTrafficGap(dataset: Dataset): TrafficDiagnosis {
     return lag;
   })();
 
+  /**
+   * Kanal yang paling jelas menunjukkan kebocoran: tayangannya bergerak lebih
+   * cepat daripada rasio klik tautannya. Dipilih dari data, bukan dari daftar
+   * kanal tetap.
+   */
+  const leaking = [...recent]
+    .filter((row) => row.views > 0)
+    .map((row) => ({
+      row,
+      gap: pctChange(row.views, row.viewsPrev) - pctChange(row.linkCtr, row.linkCtrPrev),
+    }))
+    .sort((a, b) => b.gap - a.gap)[0];
+
+  /** Sumber trafik dengan penurunan sesi terbesar, bila memang menurun. */
+  const weakestSource = [...dataset.sources].sort(
+    (a, b) => pctChange(a.sessions, a.sessionsPrev) - pctChange(b.sessions, b.sessionsPrev),
+  )[0];
+  const sourceDropped =
+    weakestSource !== undefined && pctChange(weakestSource.sessions, weakestSource.sessionsPrev) < 0;
+
+  /** Halaman dengan penurunan konversi 7 hari terbesar, bila memang menurun. */
+  const weakestPage = [...dataset.pages].sort(
+    (a, b) => pctChange(a.conversions7, a.conversions7Prev) - pctChange(b.conversions7, b.conversions7Prev),
+  )[0];
+  const pageDropped =
+    weakestPage !== undefined && pctChange(weakestPage.conversions7, weakestPage.conversions7Prev) < 0;
+
+  /** Kata kunci dengan penurunan klik terbesar, bila memang menurun. */
+  const weakestQuery = [...dataset.search].sort(
+    (a, b) => pctChange(a.clicks, a.clicksPrev) - pctChange(b.clicks, b.clicksPrev),
+  )[0];
+  const queryDropped =
+    weakestQuery !== undefined && pctChange(weakestQuery.clicks, weakestQuery.clicksPrev) < 0;
+
   const factors: CopilotFactor[] = [];
 
-  if (instagram) {
+  if (leaking && leaking.gap > 0) {
+    const { row } = leaking;
     factors.push({
-      label: "Klik tautan keluar tidak ikut naik bersama tayangan Instagram",
-      detail: `Tayangan Instagram naik ${formatDelta(pctChange(instagram.views, instagram.viewsPrev))}, tetapi klik tautan keluar justru ${formatDelta(pctChange(instagram.linkClicks, instagram.linkClicksPrev))}. Rasio klik turun dari ${formatPercent(instagram.linkCtrPrev, 2)} ke ${formatPercent(instagram.linkCtr, 2)} dari tayangan. Artinya audiens menonton, tetapi tidak melanjutkan ke website.`,
+      label: `Klik tautan keluar tidak ikut naik bersama tayangan ${platformLabel(row.platform)}`,
+      detail: `Tayangan ${platformLabel(row.platform)} ${formatDelta(pctChange(row.views, row.viewsPrev))}, tetapi klik tautan keluar ${formatDelta(pctChange(row.linkClicks, row.linkClicksPrev))}. Rasio klik bergerak dari ${formatPercent(row.linkCtrPrev, 2)} ke ${formatPercent(row.linkCtr, 2)} dari tayangan. Artinya audiens menonton, tetapi tidak melanjutkan ke website.`,
       evidence: [
         {
-          label: "Tayangan Instagram (7 hari)",
-          value: formatCompact(instagram.views),
-          change: pctChange(instagram.views, instagram.viewsPrev),
+          label: `Tayangan ${platformLabel(row.platform)} (${WINDOW} hari)`,
+          value: formatCompact(row.views),
+          change: pctChange(row.views, row.viewsPrev),
         },
         {
-          label: "Klik tautan keluar (7 hari)",
-          value: formatCompact(instagram.linkClicks),
-          change: pctChange(instagram.linkClicks, instagram.linkClicksPrev),
+          label: `Klik tautan keluar (${WINDOW} hari)`,
+          value: formatCompact(row.linkClicks),
+          change: pctChange(row.linkClicks, row.linkClicksPrev),
         },
         {
           label: "Rasio klik / tayangan",
-          value: `${formatPercent(instagram.linkCtrPrev, 2)} → ${formatPercent(instagram.linkCtr, 2)}`,
-          change: pctChange(instagram.linkCtr, instagram.linkCtrPrev),
+          value: `${formatPercent(row.linkCtrPrev, 2)} → ${formatPercent(row.linkCtr, 2)}`,
+          change: pctChange(row.linkCtr, row.linkCtrPrev),
         },
       ],
     });
   }
 
-  if (organic) {
-    const droppedQuery = [...dataset.search].sort(
-      (a, b) => pctChange(a.clicks, a.clicksPrev) - pctChange(b.clicks, b.clicksPrev),
-    )[0];
+  if (weakestSource && sourceDropped) {
     factors.push({
-      label: "Trafik pencarian organik menurun di periode yang sama",
-      detail: `Sesi dari Google Organic ${formatDelta(pctChange(organic.sessions, organic.sessionsPrev))}. Penurunan terbesar berasal dari kata kunci “${droppedQuery.query}” yang posisinya bergeser dari ${droppedQuery.positionPrev} ke ${droppedQuery.position}. Karena organic adalah kanal terbesar, penurunan ini berdampak paling besar ke total sesi.`,
+      label: `Sesi dari ${weakestSource.source} menurun di periode yang sama`,
+      detail: queryDropped && weakestQuery
+        ? `Sesi dari ${weakestSource.source} ${formatDelta(pctChange(weakestSource.sessions, weakestSource.sessionsPrev))}. Penurunan terbesar berasal dari kata kunci “${weakestQuery.query}” yang posisinya bergeser dari ${weakestQuery.positionPrev} ke ${weakestQuery.position}. Karena sumber ini termasuk kanal terbesar, penurunan ini berdampak paling besar ke total sesi.`
+        : `Sesi dari ${weakestSource.source} ${formatDelta(pctChange(weakestSource.sessions, weakestSource.sessionsPrev))}. Sebagai salah satu sumber terbesar, penurunan ini berdampak besar ke total sesi.`,
       evidence: [
         {
-          label: "Sesi Google Organic",
-          value: formatNumber(organic.sessions),
-          change: pctChange(organic.sessions, organic.sessionsPrev),
+          label: `Sesi ${weakestSource.source}`,
+          value: formatNumber(weakestSource.sessions),
+          change: pctChange(weakestSource.sessions, weakestSource.sessionsPrev),
         },
         {
-          label: `Posisi “${droppedQuery.query}”`,
-          value: `${droppedQuery.positionPrev} → ${droppedQuery.position}`,
+          label: "Kontribusi terhadap sesi",
+          value: formatPercent(safeDiv(weakestSource.sessions, totals.sessions) * 100),
         },
         {
-          label: "Kontribusi organic terhadap sesi",
-          value: formatPercent(safeDiv(organic.sessions, totals.sessions) * 100),
+          label: "Posisi kata kunci terlemah",
+          value:
+            queryDropped && weakestQuery
+              ? `${weakestQuery.positionPrev} → ${weakestQuery.position}`
+              : "—",
         },
       ],
     });
   }
 
-  if (promoPage) {
+  if (weakestPage && pageDropped) {
     factors.push({
-      label: "Konversi halaman kampanye melemah",
-      detail: `Halaman ${promoPage.path} menerima ${formatNumber(promoPage.views30)} kunjungan, tetapi konversinya ${formatDelta(pctChange(promoPage.conversions7, promoPage.conversions7Prev))} pada 7 hari terakhir. Penurunan konversi berarti sebagian penurunan angka konversi tidak hanya disebabkan oleh trafik yang menurun.`,
+      label: `Konversi halaman ${weakestPage.path} melemah`,
+      detail: `Halaman ${weakestPage.path} menerima ${formatNumber(weakestPage.views30)} kunjungan, tetapi konversinya ${formatDelta(pctChange(weakestPage.conversions7, weakestPage.conversions7Prev))} pada ${WINDOW} hari terakhir. Penurunan konversi berarti sebagian penurunan angka konversi tidak hanya disebabkan oleh trafik yang menurun.`,
       evidence: [
         {
-          label: "Konversi /promo-oktober (7 hari)",
-          value: formatNumber(promoPage.conversions7),
-          change: pctChange(promoPage.conversions7, promoPage.conversions7Prev),
+          label: `Konversi ${weakestPage.path} (${WINDOW} hari)`,
+          value: formatNumber(weakestPage.conversions7),
+          change: pctChange(weakestPage.conversions7, weakestPage.conversions7Prev),
         },
         {
           label: "Rasio pentalan halaman",
-          value: formatPercent(promoPage.exitRate),
+          value: formatPercent(weakestPage.exitRate),
         },
         {
           label: "Rata-rata durasi kunjungan",
-          value: `${promoPage.avgSeconds} detik`,
+          value: `${weakestPage.avgSeconds} detik`,
         },
       ],
     });
@@ -276,12 +320,12 @@ export function diagnoseTrafficGap(dataset: Dataset): TrafficDiagnosis {
     detail: `Sesi dari media sosial ${formatDelta(pctChange(socialSessionsNow, socialSessionsPrev))} sementara total sesi ${formatDelta(sessionsDelta)}. Korelasi tayangan sosial dengan sesi website pada jeda ${correlated.lag} hari adalah ${correlated.r.toFixed(2)}, sehingga perubahan sosial tidak langsung menjelaskan seluruh pergerakan trafik.`,
     evidence: [
       {
-        label: "Sesi dari media sosial (7 hari)",
+        label: `Sesi dari media sosial (${WINDOW} hari)`,
         value: formatNumber(socialSessionsNow),
         change: pctChange(socialSessionsNow, socialSessionsPrev),
       },
       {
-        label: "Total sesi website (7 hari)",
+        label: `Total sesi website (${WINDOW} hari)`,
         value: formatNumber(sessionsNow),
         change: sessionsDelta,
       },
@@ -292,25 +336,37 @@ export function diagnoseTrafficGap(dataset: Dataset): TrafficDiagnosis {
     ],
   });
 
-  const headline = `Tayangan sosial naik ${formatDelta(viewsDelta)}, tetapi sesi website ${formatDelta(sessionsDelta)} karena klik tautan keluar turun ${formatDelta(clicksDelta)} dan trafik organic ikut melemah.`;
+  const headline = `Tayangan sosial ${formatDelta(viewsDelta)}, tetapi sesi website ${formatDelta(sessionsDelta)} karena klik tautan keluar ${formatDelta(clicksDelta)}${
+    weakestSource && sourceDropped
+      ? ` dan sumber ${weakestSource.source} ${formatDelta(pctChange(weakestSource.sessions, weakestSource.sessionsPrev))}`
+      : ""
+  }.`;
 
   const body = [
-    `Pada 7 hari terakhir, tayangan sosial mencapai ${formatCompact(viewsNow)} (${formatDelta(viewsDelta)}). Kenaikan ini tidak diikuti oleh klik tautan keluar yang hanya ${formatCompact(clicksNow)} (${formatDelta(clicksDelta)}), sehingga rasio klik terhadap tayangan turun dari ${formatPercent(ctrPrev, 2)} ke ${formatPercent(ctrNow, 2)}.`,
-    `Penurunan klik menjelaskan sebagian penurunan sesi website, yaitu dari ${formatNumber(sessionsPrev)} menjadi ${formatNumber(sessionsNow)} sesi (${formatDelta(sessionsDelta)}). Karena trafik organic juga turun ${organic ? formatDelta(pctChange(organic.sessions, organic.sessionsPrev)) : "—"}, ada dua penyebab yang berjalan bersamaan, bukan satu penyebab tunggal.`,
-    `Angka konversi turun lebih dalam daripada sesi (${formatDelta(pctChange(totals.conversions, totals.conversionsPrev))} vs ${formatDelta(pctChange(totals.sessions, totals.sessionsPrev))}), yang menandakan masalah tambahan pada tahap akhir perjalanan pengunjung, bukan hanya pada jumlah kunjungan.`,
+    `Pada ${WINDOW} hari terakhir, tayangan sosial mencapai ${formatCompact(viewsNow)} (${formatDelta(viewsDelta)}). Klik tautan keluar ${formatCompact(clicksNow)} (${formatDelta(clicksDelta)}), sehingga rasio klik terhadap tayangan bergerak dari ${formatPercent(ctrPrev, 2)} ke ${formatPercent(ctrNow, 2)}.`,
+    `Perubahan klik menjelaskan sebagian pergerakan sesi website, yaitu dari ${formatNumber(sessionsPrev)} menjadi ${formatNumber(sessionsNow)} sesi (${formatDelta(sessionsDelta)}).${
+      weakestSource && sourceDropped
+        ? ` Sumber ${weakestSource.source} juga ${formatDelta(pctChange(weakestSource.sessions, weakestSource.sessionsPrev))}, sehingga ada lebih dari satu penyebab yang berjalan bersamaan.`
+        : ""
+    }`,
+    `Angka konversi bergerak ${formatDelta(pctChange(totals.conversions, totals.conversionsPrev))} sementara sesi ${formatDelta(pctChange(totals.sessions, totals.sessionsPrev))}, yang menandakan perubahan pada tahap akhir perjalanan pengunjung, bukan hanya pada jumlah kunjungan.`,
   ];
 
   const actions = [
     "Periksa tautan di bio dan deskripsi: pastikan tautan kampanye masih aktif, cepat dibuka, dan mengarah ke halaman yang sesuai.",
     "Uji dua versi CTA pada 3 konten terbaik untuk memulihkan rasio klik tanpa menambah tayangan.",
-    "Perbaiki halaman /promo-oktober: perpendek jalur menuju tombol utama dan sinkronkan pesan dengan konten sosial terbaru.",
-    "Tinjau ulang kata kunci yang posisinya turun dan perbarui halaman terkait sebelum menambah anggaran iklan.",
+    weakestPage
+      ? `Perbaiki halaman ${weakestPage.path}: perpendek jalur menuju tombol utama dan sinkronkan pesan dengan konten sosial terbaru.`
+      : "Pastikan halaman tujuan utama memuat cepat dan pesannya selaras dengan konten sosial terbaru.",
+    weakestQuery
+      ? `Tinjau ulang kata kunci “${weakestQuery.query}” yang posisinya bergeser dan perbarui halaman terkait sebelum menambah anggaran iklan.`
+      : "Tinjau kata kunci organik teratas dan perbarui halaman terkait sebelum menambah anggaran iklan.",
   ];
 
   const dataPoints = [
-    `Tayangan sosial 7 hari: ${formatNumber(viewsNow)} vs ${formatNumber(viewsPrev)}`,
-    `Klik tautan keluar 7 hari: ${formatNumber(clicksNow)} vs ${formatNumber(clicksPrev)}`,
-    `Sesi website 7 hari: ${formatNumber(sessionsNow)} vs ${formatNumber(sessionsPrev)}`,
+    `Tayangan sosial ${WINDOW} hari: ${formatNumber(viewsNow)} vs ${formatNumber(viewsPrev)}`,
+    `Klik tautan keluar ${WINDOW} hari: ${formatNumber(clicksNow)} vs ${formatNumber(clicksPrev)}`,
+    `Sesi website ${WINDOW} hari: ${formatNumber(sessionsNow)} vs ${formatNumber(sessionsPrev)}`,
     `Sumber: ${dataset.social.length} baris metrik sosial, ${dataset.web.length} baris metrik website`,
   ];
 
@@ -632,12 +688,13 @@ function timingAnswer(question: string, dataset: Dataset): CopilotAnswer {
   const weekdays = performanceByWeekday(dataset);
   return {
     question,
-    headline: `Waktu terbaik: hari ${weekdays[0]?.label ?? "—"} pukul ${hours[0]?.label ?? "—"} dengan interaksi rata-rata ${formatPercent(hours[0]?.avgEngagement ?? 0)}.`,
+    headline: `Waktu publikasi terbaik: hari ${weekdays[0]?.label ?? "—"} pukul ${hours[0]?.label ?? "—"} dengan interaksi rata-rata ${formatPercent(hours[0]?.avgEngagement ?? 0)}.`,
     matchedTopic: "Jadwal publikasi",
     body: [
-      `Peringkat jam terbaik: ${hours.slice(0, 3).map((bucket) => `${bucket.label} (${formatPercent(bucket.avgEngagement)})`).join(", ")}.`,
-      `Peringkat hari terbaik: ${weekdays.slice(0, 3).map((bucket) => `${bucket.label} (${formatPercent(bucket.avgEngagement)})`).join(", ")}.`,
-      `Waktu terlemah: hari ${weekdays[weekdays.length - 1]?.label ?? "—"} pukul ${hours[hours.length - 1]?.label ?? "—"}.`,
+      "Angka ini diturunkan dari waktu unggah konten pada periode ini, bukan dari jam aktif audiens — platform tidak menyediakan jam aktif audiens.",
+      `Peringkat jam publikasi terbaik: ${hours.slice(0, 3).map((bucket) => `${bucket.label} (${formatPercent(bucket.avgEngagement)})`).join(", ")}.`,
+      `Peringkat hari publikasi terbaik: ${weekdays.slice(0, 3).map((bucket) => `${bucket.label} (${formatPercent(bucket.avgEngagement)})`).join(", ")}.`,
+      `Waktu publikasi terlemah: hari ${weekdays[weekdays.length - 1]?.label ?? "—"} pukul ${hours[hours.length - 1]?.label ?? "—"}.`,
     ],
     factors: [],
     actions: [
@@ -724,7 +781,7 @@ export function answerCopilot(question: string, dataset: Dataset): CopilotAnswer
 }
 
 export const COPILOT_SUGGESTIONS = [
-  "Kenapa trafik website turun padahal views Instagram naik?",
+  "Kenapa trafik website tidak sejalan dengan kenaikan tayangan sosial?",
   "Apa topik komentar yang paling sering muncul?",
   "Kapan waktu terbaik untuk mengunggah konten?",
   "Prediksi performa 7 hari ke depan",

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { errorResponse } from "@/lib/api";
+import { errorResponse, requireAdmin } from "@/lib/api";
 import { getDb } from "@/lib/db";
 import { resolveGoogleAccessToken } from "@/lib/sync";
 import { GoogleApiError, fetchYouTubeVideos } from "@/lib/youtube";
@@ -11,11 +11,17 @@ import { GoogleApiError, fetchYouTubeVideos } from "@/lib/youtube";
  * statistik) dan tidak pernah menyentuh kredensial. Token akses diambil dari
  * penyimpanan terenkripsi lalu diperbarui bila sudah mendekati kedaluwarsa.
  *
+ * Meski datanya publik di YouTube, endpoint ini tetap dijaga token admin agar
+ * daftar akun yang terhubung tidak dapat dipetakan dari luar.
+ *
  * Parameter `account` opsional untuk memilih akun tertentu; tanpa itu dipakai
  * akun YouTube pertama sesuai urutan tampilan.
  */
 export async function GET(request: Request) {
   try {
+    const denied = await requireAdmin(request);
+    if (denied) return denied;
+
     const requested = new URL(request.url).searchParams.get("account");
     const db = await getDb();
     const account = requested

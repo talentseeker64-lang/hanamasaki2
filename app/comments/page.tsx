@@ -13,7 +13,7 @@ import {
 import { COPILOT_SUGGESTIONS, answerCopilot } from "@/lib/ai";
 import { getDataset } from "@/lib/data";
 import { formatDateTime, formatNumber, formatPercent } from "@/lib/format";
-import { commentAnalysis } from "@/lib/metrics";
+import { commentAnalysis, commentProvenance } from "@/lib/metrics";
 
 const SENTIMENT_COLOR = { positive: "#10b981", neutral: "#94a3b8", negative: "#f43f5e" };
 const SENTIMENT_LABEL = { positive: "Positif", neutral: "Netral", negative: "Negatif" };
@@ -31,13 +31,14 @@ async function CommentsContent() {
   const analysis = commentAnalysis(dataset);
   const copilot = answerCopilot(COPILOT_SUGGESTIONS[1], dataset);
   const topIntent = [...analysis.intents].sort((a, b) => b.count - a.count)[0];
+  const provenance = commentProvenance(dataset);
 
   return (
     <div className="flex flex-col gap-6">
       <PageHeader
         eyebrow={`Comments AI · ${dataset.range.days} hari terakhir`}
         title="Analisis sentimen dan topik komentar"
-        description="AI mengelompokkan komentar berdasarkan sentimen dan niat, lalu menyorot pertanyaan yang belum terjawab serta keluhan yang perlu ditindak. Analisis ini berbasis klasifikasi kata kunci pada dataset ilustratif."
+        description="AI mengelompokkan komentar berdasarkan sentimen dan niat, lalu menyorot pertanyaan yang belum terjawab serta keluhan yang perlu ditindak. Analisis ini berbasis klasifikasi kata kunci pada komentar yang tersimpan."
       />
 
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -45,6 +46,7 @@ async function CommentsContent() {
           label="Komentar dianalisis"
           value={formatNumber(analysis.total)}
           hint={`Dari 4 kanal sosial pada periode ini`}
+          provenance={provenance}
         />
         <KpiCard
           label="Sentimen positif"
@@ -52,6 +54,7 @@ async function CommentsContent() {
           change={analysis.positiveShare - analysis.positiveSharePrev}
           asPoints
           hint={`Periode sebelumnya ${formatPercent(analysis.positiveSharePrev)}`}
+          provenance={provenance}
         />
         <KpiCard
           label="Sentimen negatif"
@@ -60,11 +63,13 @@ async function CommentsContent() {
           asPoints
           invertChange
           hint={`Periode sebelumnya ${formatPercent(analysis.negativeSharePrev)}`}
+          provenance={provenance}
         />
         <KpiCard
           label="Perlu tindak lanjut"
           value={formatNumber(analysis.unanswered.length + analysis.complaints.length)}
           hint={`${analysis.unanswered.length} pertanyaan · ${analysis.complaints.length} keluhan`}
+          provenance={provenance}
         />
       </div>
 
@@ -213,8 +218,9 @@ async function CommentsContent() {
           </ul>
           <div className="border-t border-slate-100 px-5 py-4">
             <DataNotice>
-              Klasifikasi ini memakai pencocokan kata kunci pada template komentar ilustratif, bukan
-              model bahasa. Untuk produksi, ganti dengan model yang dilatih pada data komentar nyata.
+              Klasifikasi ini memakai pencocokan kata kunci pada teks komentar yang tersimpan,
+              bukan model bahasa. Untuk produksi, ganti dengan model yang dilatih pada data
+              komentar nyata.
             </DataNotice>
           </div>
         </Card>
