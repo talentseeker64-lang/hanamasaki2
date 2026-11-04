@@ -12,6 +12,8 @@
  * tombol "Sinkronkan sekarang".
  */
 
+import { pageGate } from "./lib/page-gate";
+
 // Berkas `.open-next/worker.js` baru ada setelah `opennextjs-cloudflare build`,
 // sehingga impor ini perlu diabaikan saat berkasnya belum dibangun. Anotasi
 // dipilih ketimbang @ts-expect-error karena pada salinan yang sudah dibangun
@@ -27,7 +29,11 @@ const SYNC_PATH = "/api/sync/run";
 const SELF_ORIGIN = "https://hanamasaki2";
 
 export default {
-  fetch(request: Request, env: CloudflareEnv, ctx: ExecutionContext): Promise<Response> {
+  async fetch(request: Request, env: CloudflareEnv, ctx: ExecutionContext): Promise<Response> {
+    // Gerbang halaman HTML (temuan T-5) dijalankan sebelum Next.js menyentuh
+    // permintaan, sehingga dataset tidak pernah dirender untuk pengunjung tanpa sesi.
+    const gated = await pageGate(request, env.ADMIN_TOKEN);
+    if (gated) return gated;
     return openNextWorker.fetch(request, env, ctx);
   },
 

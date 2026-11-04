@@ -347,6 +347,10 @@ Seluruh halaman dan `/api/overview` dapat diakses tanpa kredensial apa pun.
 
 **Dampak:** menjadi kebocoran data begitu leads dan transaksi masuk.
 
+**Status terkini:** endpoint API dijaga sejak Phase 2; halaman HTML dijaga oleh
+gerbang sesi di `worker.ts` (`lib/page-gate.ts`, Phase 4 A4). Masih token bersama,
+bukan akun pengguna — lihat `IMPLEMENTATION_ROADMAP.md`.
+
 ### T-6 · MEDIUM — TikTok belum ada konektornya
 
 `lib/sync.ts` baris 47 menetapkan hanya Meta dan Google. TikTok adalah salah satu

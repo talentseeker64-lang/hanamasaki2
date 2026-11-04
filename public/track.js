@@ -4,6 +4,12 @@
  * Dipasang di situs pemasang, bukan di aplikasi ini. Cara pakai:
  *
  *   <script defer src="https://<worker>/track.js" data-track-key="<TRACK_KEY>"></script>
+ *
+ * Endpoint penerima ditebak dari `src` skrip ini: `https://<worker>/api/track`.
+ * Karena skrip dimuat dari domain situs pemasang, URL relatif (`/api/track`)
+ * akan menunjuk ke domain pemasang — bukan ke Worker — sehingga peristiwa
+ * terkirim ke tempat yang salah. `data-endpoint` hanya perlu diisi bila
+ * penerima berada di alamat lain; nilai relatifnya diselesaikan terhadap `src`.
  *   <script>
  *     // Opsional, dipanggil saat pengunjung melihat produk atau menyelesaikan pesanan:
  *     peakalpha.track("product_view", { path: "/produk/kemeja-flanel" });
@@ -31,7 +37,19 @@
   var trackKey = script.getAttribute("data-track-key");
   if (!trackKey) return;
 
-  var endpoint = script.getAttribute("data-endpoint") || "/api/track";
+  /* Selesaikan alamat penerima terhadap `src` skrip (domain Worker), bukan
+     terhadap halaman pemasang. Tanpa ini, "/api/track" jatuh ke domain situs
+     pemasang dan semua peristiwa hilang. */
+  function resolveEndpoint() {
+    var configured = script.getAttribute("data-endpoint") || "/api/track";
+    var base = script.src || window.location.href;
+    try {
+      return new URL(configured, base).toString();
+    } catch {
+      return configured;
+    }
+  }
+  var endpoint = resolveEndpoint();
 
   var UTM_KEYS = ["source", "medium", "campaign", "content", "term"];
   var UTM_PARAM = {
