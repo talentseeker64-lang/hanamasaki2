@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { Suspense } from "react";
 import {
   Card,
@@ -16,7 +17,7 @@ import {
   salesFunnel,
   type SalesFunnelStage,
 } from "@/lib/sales";
-import { trackingCoverage } from "@/lib/tracking";
+import { trackerSnippet, trackingCoverage } from "@/lib/tracking";
 
 const STAGE_BADGE: Record<SalesFunnelStage["state"], string> = {
   measured: "bg-emerald-50 text-emerald-700 ring-emerald-100",
@@ -24,9 +25,17 @@ const STAGE_BADGE: Record<SalesFunnelStage["state"], string> = {
   unavailable: "bg-amber-50 text-amber-700 ring-amber-100",
 };
 
-/** Contoh pemasangan skrip pelacak; ditampilkan apa adanya supaya dapat disalin. */
-const TRACKER_SNIPPET =
-  '<script defer src="https://<worker>" data-track-key="<TRACK_KEY>"></script>';
+/**
+ * Origin yang dipakai pengunjung untuk membuka halaman ini — itulah alamat
+ * Worker yang harus dipasang pada `src` skrip pelacak.
+ */
+async function requestOrigin(): Promise<string | null> {
+  const incoming = await headers();
+  const host = incoming.get("x-forwarded-host") ?? incoming.get("host");
+  if (!host) return null;
+  const proto = incoming.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+  return `${proto}://${host}`;
+}
 
 export default function SalesPage() {
   return (
@@ -42,6 +51,7 @@ async function SalesContent() {
   const coverage = trackingCoverage(dataset.events);
   const campaigns = campaignAttribution(dataset.events);
   const mixed = mixesProvenance(stages);
+  const snippet = trackerSnippet(await requestOrigin());
 
   return (
     <div className="flex flex-col gap-6">
@@ -106,7 +116,7 @@ async function SalesContent() {
             berfungsi sebagai penghalang pengiriman liar — bukan autentikasi.
           </p>
           <pre className="mt-3 overflow-x-auto rounded-lg bg-slate-900 px-4 py-3 text-[11px] leading-relaxed text-slate-100">
-            {TRACKER_SNIPPET}
+            {snippet}
           </pre>
           <p className="mt-2 text-xs leading-relaxed text-slate-500">
             Halaman produk dapat menambahkan{" "}

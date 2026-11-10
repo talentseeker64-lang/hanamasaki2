@@ -199,3 +199,83 @@ test("trackingCoverage pada daftar kosong tidak memalsukan rentang waktu", () =>
   assert.equal(coverage.firstSeen, null);
   assert.equal(coverage.lastSeen, null);
 });
+
+// ---------------------------------------------------------------------------
+// Cuplikan pemasangan dan perilaku skrip `public/track.js` (A1)
+// ---------------------------------------------------------------------------
+
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { trackerSnippet } from "../lib/tracking";
+
+test("trackerSnippet memakai origin Worker dan jalur /track.js", () => {
+  assert.equal(
+    trackerSnippet("https://hanamasaki2.example.workers.dev/"),
+    '<script defer src="https://hanamasaki2.example.workers.dev/track.js" data-track-key="<TRACK_KEY>"></script>',
+  );
+  assert.match(trackerSnippet(null), /src="https:\/\/<worker>\/track\.js"/);
+});
+
+/** Jalankan track.js di sandbox browser palsu; kembalikan permintaan yang dikirim. */
+function runTracker(scriptAttrs: Record<string, string>, scriptSrc: string, pageUrl: string) {
+  const calls: { url: string; init: Record<string, unknown> }[] = [];
+  const page = new URL(pageUrl);
+  const window: Record<string, unknown> = {
+    location: { pathname: page.pathname, search: page.search, href: page.href },
+    sessionStorage: { getItem: () => null, setItem: () => undefined },
+    crypto: { randomUUID: () => "uuid-test" },
+  };
+  const sandbox = {
+    window,
+    document: {
+      referrer: "",
+      currentScript: {
+        src: scriptSrc,
+        getAttribute: (name: string) => scriptAttrs[name] ?? null,
+      },
+    },
+    URL,
+    URLSearchParams,
+    JSON,
+    Date,
+    Math,
+    fetch: (url: string, init: Record<string, unknown>) => {
+      calls.push({ url, init });
+      return Promise.resolve();
+    },
+  };
+  vm.runInNewContext(readFileSync("public/track.js", "utf8"), sandbox);
+  return calls;
+}
+
+test("track.js mengirim ke origin src skrip, bukan ke domain situs pemasang", () => {
+  const calls = runTracker(
+    { "data-track-key": "k" },
+    "https://worker.example.dev/track.js",
+    "https://toko-orang.example/produk/a?utm_source=tiktok",
+  );
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://worker.example.dev/api/track");
+  assert.deepEqual((calls[0].init.headers as Record<string, string>)["x-track-key"], "k");
+});
+
+test("track.js menyelesaikan data-endpoint relatif terhadap src, dan menghormati yang absolut", () => {
+  const relative = runTracker(
+    { "data-track-key": "k", "data-endpoint": "/collect" },
+    "https://worker.example.dev/track.js",
+    "https://toko-orang.example/",
+  );
+  assert.equal(relative[0].url, "https://worker.example.dev/collect");
+
+  const absolute = runTracker(
+    { "data-track-key": "k", "data-endpoint": "https://lain.example/api/track" },
+    "https://worker.example.dev/track.js",
+    "https://toko-orang.example/",
+  );
+  assert.equal(absolute[0].url, "https://lain.example/api/track");
+});
+
+test("track.js tidak mengirim apa pun tanpa data-track-key", () => {
+  const calls = runTracker({}, "https://worker.example.dev/track.js", "https://toko-orang.example/");
+  assert.equal(calls.length, 0);
+});

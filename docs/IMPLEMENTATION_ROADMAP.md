@@ -25,7 +25,7 @@ Aturan yang berlaku di seluruh fase:
 | 1 | Perbaikan Fondasi & Analytics | **Selesai** | Fase 0 |
 | 2 | Unified Marketing Data Layer | **Selesai** | Fase 1 |
 | 3 | FYP & Content Intelligence | **Selesai** | Fase 2 |
-| 4 | Sales & Conversion Intelligence | **Sebagian** (item 1, 2, 6) | Fase 2 |
+| 4 | Sales & Conversion Intelligence | **Sebagian** (item 1, 2, 6; A1–A4 ditutup) | Fase 2 |
 | 5 | Hybrid AI Intelligence | Belum mulai | Fase 3, 4 |
 | 6 | Competitor & Experiment | Belum mulai | Fase 5 |
 | 7 | Business Performance | Belum mulai | Fase 4, 6 |
@@ -126,10 +126,11 @@ kebocoran ke dalam fondasi.
 
 ### Batas yang belum tertutup
 
-- Pekerjaan 7 baru mencakup **endpoint API**. Halaman HTML yang merender dataset
-  yang sama masih dapat dibuka tanpa kredensial; membatasinya memerlukan
-  autentikasi pengguna sungguhan, yang belum ada di fase ini. Token bersama
-  `x-admin-token` hanyalah penghalang, bukan autentikasi.
+- Pekerjaan 7 pada saat fase ini selesai hanya mencakup **endpoint API**. Halaman
+  HTML kemudian dijaga oleh gerbang sesi di `worker.ts` (lihat "Penutup Phase 4"
+  di bawah). Gerbang itu tetap berbasis token bersama, bukan akun pengguna:
+  `x-admin-token`/`ADMIN_TOKEN` hanyalah penghalang, bukan autentikasi
+  multi-pengguna.
 - Migrasi `0004` (bersama `0005`) **sudah diterapkan** ke D1 remote pada
   2026-11-02; `0003` ternyata sudah diterapkan lebih dulu. Yang belum diterapkan
   ke remote hanyalah **seed** — lihat §11 `docs/REMOTE_DATA_INVENTORY.md`.
@@ -253,18 +254,47 @@ pendapatan, dengan setiap tahap yang belum terhubung ditandai jujur.
 
 - `npx tsc --noEmit` — bersih.
 - `npm test` — 123 lulus, 0 gagal (21 baru untuk `tracking` dan `sales`).
+  Setelah A1–A4: 137 lulus (4 baru untuk `track.js`/cuplikan, 10 untuk `page-gate`).
 - `npm run lint` — bersih.
 - `npm run build` — sukses; rute `/sales` dan `/api/track` terdaftar.
+
+### Penutup Phase 4 (pekerjaan A1–A4, tanpa pihak ketiga)
+
+- **A1 — endpoint pelacak.** Sebelumnya `track.js` memakai `/api/track` relatif,
+  padahal skrip berjalan di domain situs pemasang: peristiwa terkirim ke domain
+  yang salah. Kini endpoint diturunkan dari `src` skrip (`<origin>/api/track`),
+  `data-endpoint` relatif diselesaikan terhadap `src`, dan cuplikan di `/sales`
+  memakai origin Worker yang sebenarnya serta jalur `/track.js` (sebelumnya
+  `src="https://<worker>"` tanpa jalur). Diuji di `tests/tracking.test.ts`.
+- **A2 — uji pemasangan nyata.** Migrasi `0006_site_events.sql` **sudah
+  diterapkan** ke D1 remote (pernyataan sebelumnya "belum diterapkan" sudah
+  usang). Yang **belum** ada adalah bukti peristiwa pertama dari situs pemasang
+  sungguhan di `site_events`. Skrip
+  [`scripts/verify-tracker.mjs`](../scripts/verify-tracker.mjs) memeriksa jalur
+  HTTP pada Worker yang ter-deploy (skrip tersaji, CORS, penerimaan, idempotensi,
+  penolakan tanpa kunci) dan mencetak kueri D1 untuk membuktikan barisnya ada.
+  Skrip ini baru diuji terhadap server tiruan; **belum dijalankan terhadap
+  Worker produksi** karena lingkungan pengembangan tidak dapat menjangkaunya.
+- **A3 — dokumen.** Dokumen ini dan `DATABASE_MIGRATION_PLAN.md` diselaraskan.
+- **A4 — autentikasi halaman HTML.** [`lib/page-gate.ts`](../lib/page-gate.ts)
+  dipasang di `worker.ts` sebelum permintaan sampai ke Next.js. Halaman tanpa
+  sesi dialihkan ke `/login`; masuk memakai `ADMIN_TOKEN` dan menghasilkan cookie
+  sesi `HttpOnly` bertanda tangan HMAC (7 hari). Jalur `/api/*`, `/_next/*`,
+  `/track.js` tetap lewat karena punya penjaga sendiri atau memang publik. Selama
+  `ADMIN_TOKEN` belum diatur, halaman menjawab 503 (gagal-tertutup).
 
 ### Batas yang belum tertutup
 
 - **Item 3, 4, 5, dan 7** menunggu integrasi eksternal (WhatsApp/CRM, marketplace,
   sistem transaksi). Selama itu, tahap `leads`, `orders`, dan `revenue` tetap
   `not_connected`.
-- Migrasi `0006_site_events.sql` **belum diterapkan** ke D1 remote. Kode
-  penerimanya sudah siap, tetapi tabelnya belum ada di remote.
-- `public/track.js` dimuat dari proxy situs pemasang; belum ada pemasangan nyata
-  yang menghasilkan peristiwa pertama.
+- Belum ada peristiwa pelacak dari pemasangan nyata (lihat A2).
+- Gerbang halaman (A4) **bukan akun pengguna**: satu secret bersama, tanpa peran,
+  tanpa pencabutan per-orang, tanpa pembatasan laju percobaan masuk. Gerbang
+  hanya aktif lewat `worker.ts`; `next dev` tidak melewatinya, jadi perilakunya
+  harus diverifikasi pada `npm run preview` atau Worker ter-deploy.
+- A5 (push ke `jupliAI/hanamasaki`) dibatalkan: repo itu tidak lagi dipakai.
+  Repo kerja adalah `talentseeker64-lang/hanamasaki2`.
 
 ---
 

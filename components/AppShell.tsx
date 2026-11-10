@@ -255,6 +255,14 @@ function SidebarFooter({ syncLabel }: { syncLabel: React.ReactNode }) {
         berarti data contoh, dan “Asal tak diketahui” berarti asalnya tidak dapat dibuktikan.
         Terakhir disinkronkan {syncLabel}.
       </p>
+      <form method="post" action="/logout" className="mt-3">
+        <button
+          type="submit"
+          className="text-[11px] font-medium text-slate-500 underline-offset-2 hover:text-slate-900 hover:underline"
+        >
+          Keluar
+        </button>
+      </form>
     </div>
   );
 }

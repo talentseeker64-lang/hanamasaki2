@@ -240,3 +240,20 @@ export function trackingCoverage(events: SiteEvent[]): TrackingCoverage {
 
   return { events: events.length, sessions: sessions.size, withUtm, firstSeen, lastSeen };
 }
+
+/** Alamat skrip pelacak dan penerima, relatif terhadap origin Worker. */
+export const TRACKER_SCRIPT_PATH = "/track.js";
+export const TRACK_ENDPOINT_PATH = "/api/track";
+
+/**
+ * Cuplikan pemasangan pelacak dengan origin Worker yang sebenarnya.
+ *
+ * `src` wajib berupa URL absolut berakhiran `/track.js`: skrip menurunkan alamat
+ * penerima dari `src`-nya sendiri, jadi origin yang salah di sini berarti
+ * peristiwa dikirim ke domain yang salah. Placeholder `<worker>` dipakai hanya
+ * bila origin tidak dapat ditentukan.
+ */
+export function trackerSnippet(origin: string | null): string {
+  const base = origin ? origin.replace(/\/+$/, "") : "https://<worker>";
+  return `<script defer src="${base}${TRACKER_SCRIPT_PATH}" data-track-key="<TRACK_KEY>"></script>`;
+}

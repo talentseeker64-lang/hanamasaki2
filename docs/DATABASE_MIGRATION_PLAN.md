@@ -223,7 +223,7 @@ Null berarti durasi tidak diketahui — bukan nol.
 
 Prasyarat Phase 4, dikerjakan lebih dulu karena tidak bergantung pihak ketiga.
 
-**Berkas aktual:** `migrations/0006_site_events.sql`. Rancangan awal di bagian ini
+**Status:** sudah diterapkan ke D1 remote. **Berkas aktual:** `migrations/0006_site_events.sql`. Rancangan awal di bagian ini
 menyebut dua tabel (`tracking_links` + `tracking_events`); implementasi
 menyatukannya menjadi satu tabel `site_events` karena pemisahan itu tidak
 menambah apa pun pada tahap ini — tautan pendek belum dipakai, dan
